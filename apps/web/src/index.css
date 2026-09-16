@@ -776,6 +776,34 @@ input[type="checkbox"] {
   text-transform: uppercase;
 }
 
+.queue-item-blocked {
+  border-left-color: var(--blue);
+}
+
+.queue-item-blocked_failed_dependency {
+  border-color: var(--danger);
+  border-left-width: 4px;
+  background: linear-gradient(90deg, rgba(230, 106, 98, 0.14), transparent 46%), var(--ink-850);
+}
+
+.queue-item-tag-blocked {
+  margin-top: 5px;
+  padding: 5px 7px;
+  color: var(--paper-muted);
+  background: var(--ink-950);
+  border-left: 3px solid var(--blue);
+  text-transform: none;
+}
+
+.queue-item-tag-blocked-failed {
+  margin-top: 5px;
+  padding: 5px 7px;
+  color: #ffd6d1;
+  background: var(--ink-950);
+  border-left: 3px solid var(--danger);
+  text-transform: none;
+}
+
 @keyframes warning-flash {
   50% {
     background-color: var(--danger-dark);

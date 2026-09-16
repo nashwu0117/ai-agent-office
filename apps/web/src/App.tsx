@@ -210,10 +210,12 @@ export default function App() {
     return result;
   }, [logsByAgent]);
 
-  const pendingQueue = useMemo(
+  const queueItems = useMemo(
     () =>
       Object.values(tasksById)
-        .filter((t) => t.status === "pending")
+        .filter(
+          (t) => t.status === "pending" || t.status === "blocked" || t.status === "blocked_failed_dependency"
+        )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [tasksById]
   );
@@ -404,23 +406,38 @@ export default function App() {
         </aside>
 
         <aside className="queue-panel">
-          <h2>Queue ({pendingQueue.length})</h2>
-          {pendingQueue.length === 0 && <div className="queue-empty">No tasks waiting for an agent.</div>}
-          {pendingQueue.map((task) => (
-            <div
-              key={task.id}
-              className="queue-item"
-              style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
-            >
-              <div className="queue-item-title">{task.title}</div>
-              <div className="queue-item-meta">
-                needs: {task.requiredCapabilities.length > 0 ? task.requiredCapabilities.join(", ") : "any"}
+          <h2>Queue ({queueItems.length})</h2>
+          {queueItems.length === 0 && <div className="queue-empty">No tasks waiting for an agent.</div>}
+          {queueItems.map((task) => {
+            const depTitles = (task.dependsOn ?? []).map((id) => tasksById[id]?.title ?? id);
+            return (
+              <div
+                key={task.id}
+                className={`queue-item queue-item-${task.status}`}
+                style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
+              >
+                <div className="queue-item-title">{task.title}</div>
+                <div className="queue-item-meta">
+                  needs: {task.requiredCapabilities.length > 0 ? task.requiredCapabilities.join(", ") : "any"}
+                </div>
+                {task.status === "pending" && (
+                  <div className="queue-item-meta">
+                    waiting {Math.max(0, Math.round((now - new Date(task.createdAt).getTime()) / 1000))}s
+                  </div>
+                )}
+                {task.status === "blocked" && (
+                  <div className="queue-item-meta queue-item-tag-blocked">
+                    ⏸ queued — waiting on: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
+                  </div>
+                )}
+                {task.status === "blocked_failed_dependency" && (
+                  <div className="queue-item-meta queue-item-tag-blocked-failed">
+                    ✕ won't run — dependency failed: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
+                  </div>
+                )}
               </div>
-              <div className="queue-item-meta">
-                waiting {Math.max(0, Math.round((now - new Date(task.createdAt).getTime()) / 1000))}s
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </aside>
       </div>
     </div>
