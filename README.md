@@ -5,7 +5,7 @@ An open-source "AI company" office: instead of a wall of terminals, you see a
 Idle workers wander the Public/Talent Area; once assigned a task they walk to
 a workstation, work, and return when done.
 
-## Status: vertical slice (v0.5)
+## Status: vertical slice (v0.5.1)
 
 This is a progressively-built vertical slice, not the full product vision.
 So far:
@@ -34,6 +34,11 @@ So far:
   which is pushed to the UI as a `goal_summary` event.
 - Pixel art from Kenney's CC0 "Tiny Dungeon" pack — see
   `apps/web/src/assets/ASSET_LICENSE.md` for provenance.
+- Every worker CLI invocation runs inside a filesystem sandbox that blocks
+  writes outside its assigned `workspacePath`, with a git-diff-based
+  detect-and-revert safety net behind it regardless. See
+  [`SECURITY.md`](./SECURITY.md) for what's actually guaranteed, what isn't,
+  and the incident that prompted it.
 
 ## Prerequisites
 

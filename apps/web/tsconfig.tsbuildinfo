@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/office/OfficeScene.tsx","./src/ws/client.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/office/OfficeScene.tsx","./src/office/assets.ts","./src/ws/client.ts"],"version":"5.9.3"}
