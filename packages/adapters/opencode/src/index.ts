@@ -10,11 +10,14 @@ import { spawnRuntimeProcess } from "@ai-office/core/node";
  * so every line is parsed defensively and anything unrecognized becomes a
  * plain "log" event instead of crashing the adapter.
  *
- * Model is hardcoded to a model confirmed working in this environment
- * (`opencode/muse-spark-1.3-contributor-free`, the CLI's own default here) —
- * see README for how to point this at a different provider/model.
+ * Model is hardcoded to a model confirmed fast and reliable in this
+ * environment (`opencode/nemotron-3.5-lightning-free`) — see README for how
+ * to point this at a different provider/model. `opencode/muse-spark-1.3-
+ * contributor-free` (this account's CLI default) also works but was
+ * observed taking 7+ minutes on a simple single-file write during manual
+ * verification, which makes it a poor fit for a live demo.
  */
-const DEFAULT_MODEL = "opencode/muse-spark-1.3-contributor-free";
+const DEFAULT_MODEL = "opencode/nemotron-3.5-lightning-free";
 
 export class OpenCodeAdapter implements RuntimeAdapter {
   async start(task: Task, agent: Agent): Promise<RuntimeHandle> {
