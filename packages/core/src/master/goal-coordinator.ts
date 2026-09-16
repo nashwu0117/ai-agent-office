@@ -1,6 +1,7 @@
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { OfficeEvent } from "../events/types.js";
 import type { MasterBrain, TaskResultSummary } from "./brain.js";
+import { resolveDependencies } from "./dependency-graph.js";
 
 export interface GoalCoordinatorOptions {
   orchestrator: Orchestrator;
@@ -64,21 +65,38 @@ export class GoalCoordinator {
       return;
     }
 
+    // Cycle/dangling-reference check happens here, before a single real Task
+    // exists — a plan that fails this must never reach the Orchestrator, since
+    // it has no way to recover from a dependency deadlock once tasks exist.
+    let resolved;
+    try {
+      resolved = resolveDependencies(plannedTasks);
+    } catch (err) {
+      this.broadcast({
+        type: "goal_failed",
+        goalId,
+        goal,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+
     const tracked: TrackedGoal = { goal, taskTitles: new Map(), results: new Map() };
     this.goals.set(goalId, tracked);
 
-    for (const planned of plannedTasks) {
-      const task = await this.orchestrator.submitTask({
+    const tasks = this.orchestrator.submitTaskBatch(
+      resolved.map((planned) => ({
         description: planned.description,
         workspacePath,
         title: planned.title,
         requiredCapabilities: planned.requiredCapabilities,
         goalId,
-      });
-      tracked.taskTitles.set(task.id, planned.title);
-    }
+        dependsOnIndexes: planned.dependsOnIndexes,
+      }))
+    );
+    tasks.forEach((task, i) => tracked.taskTitles.set(task.id, resolved[i].title));
 
-    this.broadcast({ type: "goal_planned", goalId, goal, taskCount: plannedTasks.length });
+    this.broadcast({ type: "goal_planned", goalId, goal, taskCount: resolved.length });
   }
 
   /**
@@ -87,18 +105,41 @@ export class GoalCoordinator {
    * tell when all subtasks of a tracked goal have settled.
    */
   observe(event: OfficeEvent): void {
-    if (event.type !== "task_completed" && event.type !== "task_failed") return;
+    let settled: { taskId: string; result: TaskResultSummary } | undefined;
+
+    if (event.type === "task_completed") {
+      settled = {
+        taskId: event.taskId,
+        result: { title: "", status: "done", filesChanged: event.filesChanged, note: event.summary },
+      };
+    } else if (event.type === "task_failed") {
+      settled = { taskId: event.taskId, result: { title: "", status: "failed", filesChanged: [], note: event.reason } };
+    } else if (event.type === "task_updated" && event.task.status === "blocked_failed_dependency") {
+      // This task will never run — its dependency failed — so it will never
+      // emit a task_completed/task_failed of its own. Without this branch a
+      // goal containing one would wait forever for a result that never
+      // arrives; count it as a settled failure instead.
+      settled = {
+        taskId: event.task.id,
+        result: {
+          title: "",
+          status: "failed",
+          filesChanged: [],
+          note: "Skipped: a task this one depends on failed.",
+        },
+      };
+    } else {
+      return;
+    }
+
+    const { taskId, result } = settled;
 
     for (const [goalId, tracked] of this.goals) {
-      const title = tracked.taskTitles.get(event.taskId);
+      const title = tracked.taskTitles.get(taskId);
       if (title === undefined) continue;
+      if (tracked.results.has(taskId)) return; // already settled via an earlier event for this task
 
-      tracked.results.set(
-        event.taskId,
-        event.type === "task_completed"
-          ? { title, status: "done", filesChanged: event.filesChanged, note: event.summary }
-          : { title, status: "failed", filesChanged: [], note: event.reason }
-      );
+      tracked.results.set(taskId, { ...result, title });
 
       if (tracked.results.size === tracked.taskTitles.size) {
         this.goals.delete(goalId);

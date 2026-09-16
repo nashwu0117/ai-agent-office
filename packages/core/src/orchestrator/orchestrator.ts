@@ -13,6 +13,21 @@ export interface SubmitTaskInput {
   goalId?: string;
 }
 
+export interface SubmitTaskBatchItem {
+  description: string;
+  workspacePath: string;
+  title?: string;
+  requiredCapabilities?: string[];
+  goalId?: string;
+  /**
+   * Indexes into this same batch array (not yet real task ids, since those
+   * don't exist until the whole batch is created together) that this task
+   * depends on. Already validated cycle-free by
+   * resolveDependencies — the Orchestrator trusts it and does not re-check.
+   */
+  dependsOnIndexes?: number[];
+}
+
 export interface OrchestratorOptions {
   /** Maps agent.runtime (e.g. "claude-code", "opencode") to the adapter that runs it. */
   adapters: Record<string, RuntimeAdapter>;
@@ -167,6 +182,79 @@ export class Orchestrator {
   }
 
   /**
+   * Creates every task in one Master-planned goal together, atomically,
+   * before any of them can be dispatched — required because dependsOn needs
+   * real ids that don't exist until the whole batch is created. A task with
+   * one or more dependencies starts life "blocked" instead of "pending" so
+   * scheduleDispatch's pending-only scan skips it until reconcileBlockedTasks
+   * clears it.
+   */
+  submitTaskBatch(items: SubmitTaskBatchItem[]): Task[] {
+    const createdAt = this.now();
+    const tasks: Task[] = items.map((input) => ({
+      id: defaultIdGen("task"),
+      title: input.title ?? input.description.slice(0, 60),
+      description: input.description,
+      workspacePath: input.workspacePath,
+      requiredCapabilities: input.requiredCapabilities ?? [],
+      status: "pending",
+      goalId: input.goalId,
+      createdAt,
+      updatedAt: createdAt,
+    }));
+
+    items.forEach((input, i) => {
+      const dependsOn = (input.dependsOnIndexes ?? []).map((idx) => tasks[idx].id);
+      if (dependsOn.length > 0) {
+        tasks[i].dependsOn = dependsOn;
+        tasks[i].status = "blocked";
+      }
+    });
+
+    for (const task of tasks) {
+      this.tasks.set(task.id, task);
+      this.broadcast({ type: "task_updated", task });
+    }
+
+    this.scheduleDispatch();
+    return tasks;
+  }
+
+  /**
+   * Re-scans every "blocked" task after a task settles (done/failed) and
+   * moves it forward: to "pending" once every dependency is "done", or to
+   * "blocked_failed_dependency" — permanently, visibly, never silently
+   * dropped — as soon as any dependency is "failed" or itself
+   * "blocked_failed_dependency" (so a failure cascades down a dependency
+   * chain in one pass rather than leaving later tasks stuck in "blocked"
+   * forever). Looped because clearing one task can immediately satisfy or
+   * fail the next one in the same chain.
+   */
+  private reconcileBlockedTasks(): void {
+    let changed = true;
+    let anyPending = false;
+    while (changed) {
+      changed = false;
+      for (const task of this.tasks.values()) {
+        if (task.status !== "blocked") continue;
+        const deps = (task.dependsOn ?? [])
+          .map((id) => this.tasks.get(id))
+          .filter((t): t is Task => t !== undefined);
+
+        if (deps.some((d) => d.status === "failed" || d.status === "blocked_failed_dependency")) {
+          this.setTaskStatus(task, "blocked_failed_dependency");
+          changed = true;
+        } else if (deps.every((d) => d.status === "done")) {
+          this.setTaskStatus(task, "pending");
+          anyPending = true;
+          changed = true;
+        }
+      }
+    }
+    if (anyPending) this.scheduleDispatch();
+  }
+
+  /**
    * Re-scans pending tasks against available agents and fires off every
    * match it can find in one pass. Called after a submit and after any
    * agent becomes available again — never serialized behind a single
@@ -294,6 +382,10 @@ export class Orchestrator {
     } finally {
       this.workspaceLock.release(task.workspacePath);
     }
+
+    // task.status is now a terminal "done"/"failed" set by one of the
+    // branches above — safe to see whether any sibling was waiting on it.
+    this.reconcileBlockedTasks();
 
     await new Promise((resolve) => setTimeout(resolve, this.releaseDelayMs));
     this.setAgentState(agent, "releasing", task.id);
