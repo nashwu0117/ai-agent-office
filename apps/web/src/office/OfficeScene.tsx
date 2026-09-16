@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Application, Container, Graphics, Sprite, Text, type Texture } from "pixi.js";
+import { Application, Container, Graphics, Sprite, type Texture } from "pixi.js";
 import type { Agent, AgentState } from "@ai-office/core";
 import { CHARACTER_KEYS, loadOfficeTextures, type AssetKey } from "./assets.js";
 
@@ -52,11 +52,127 @@ interface SpriteBundle {
   container: Container;
   body: Sprite;
   statusDot: Graphics;
-  badge: Text;
-  label: Text;
-  bubble: Text;
+  badge: Graphics;
+  label: Graphics;
+  bubble: Graphics;
+  bubbleText: string;
   target: { x: number; y: number };
   wanderPhase: number;
+}
+
+// A compact 3x5 bitmap alphabet. Scene labels and task bubbles are drawn as
+// integer-aligned rectangles instead of browser-font glyphs, so every piece
+// of UI inside the canvas follows the same hard pixel grid as the Kenney art.
+const PIXEL_GLYPHS: Record<string, string> = {
+  A: "010101111101101", B: "110101110101110", C: "011100100100011",
+  D: "110101101101110", E: "111100110100111", F: "111100110100100",
+  G: "011100101101011", H: "101101111101101", I: "111010010010111",
+  J: "001001001101010", K: "101101110101101", L: "100100100100111",
+  M: "101111111101101", N: "101111111111101", O: "010101101101010",
+  P: "110101110100100", Q: "010101101111011", R: "110101110101101",
+  S: "011100010001110", T: "111010010010010", U: "101101101101111",
+  V: "101101101101010", W: "101101111111101", X: "101101010101101",
+  Y: "101101010010010", Z: "111001010100111",
+  0: "111101101101111", 1: "010110010010111", 2: "110001111100111",
+  3: "110001011001110", 4: "101101111001001", 5: "111100110001110",
+  6: "011100111101111", 7: "111001010010010", 8: "111101111101111",
+  9: "111101111001110", "-": "000000111000000", ".": "000000000000010",
+  ":": "000010000010000", "/": "001001010100100", "!": "010010010000010",
+  "?": "110001010000010", " ": "000000000000000",
+};
+
+function drawPixelText(
+  target: Graphics,
+  text: string,
+  { color = 0xf4e4cb, unit = 2, align = "center" }: { color?: number; unit?: number; align?: "left" | "center" } = {}
+): { width: number; height: number } {
+  const value = text.toUpperCase();
+  const glyphWidth = 3 * unit;
+  const advance = 4 * unit;
+  const width = Math.max(0, value.length * advance - unit);
+  const startX = align === "center" ? -Math.floor(width / 2) : 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const glyph = PIXEL_GLYPHS[value[index]] ?? PIXEL_GLYPHS["?"];
+    for (let pixel = 0; pixel < glyph.length; pixel += 1) {
+      if (glyph[pixel] !== "1") continue;
+      const gx = pixel % 3;
+      const gy = Math.floor(pixel / 3);
+      target.rect(startX + index * advance + gx * unit, gy * unit, unit, unit).fill({ color });
+    }
+  }
+  return { width: Math.max(width, glyphWidth), height: 5 * unit };
+}
+
+function drawAgentLabel(target: Graphics, agentId: string): void {
+  target.clear();
+  const width = agentId.length * 8 - 2;
+  target.rect(-Math.floor(width / 2) - 4, -3, width + 8, 17).fill({ color: 0x181724, alpha: 0.86 });
+  target.rect(-Math.floor(width / 2) - 4, -3, width + 8, 2).fill({ color: 0x4c2b33 });
+  drawPixelText(target, agentId, { color: 0xf4e4cb, unit: 2 });
+}
+
+function drawStatusMarker(target: Graphics, color: number, selected: boolean): void {
+  target.clear();
+  if (selected) {
+    target.rect(-7, -3, 14, 2).fill({ color: 0xf4e4cb });
+    target.rect(-7, 7, 14, 2).fill({ color: 0xf4e4cb });
+    target.rect(-7, -3, 2, 12).fill({ color: 0xf4e4cb });
+    target.rect(5, -3, 2, 12).fill({ color: 0xf4e4cb });
+  }
+  target.rect(-4, 0, 8, 6).fill({ color: 0x181724 });
+  target.rect(-2, 2, 4, 2).fill({ color });
+}
+
+function drawStatusBadge(target: Graphics, kind: "done" | "error" | "security" | null, phase: number): void {
+  target.clear();
+  if (!kind) return;
+  const color = kind === "done" ? 0x5fc98f : kind === "security" ? 0xe66a62 : 0xf3c66b;
+  const y = kind === "done" ? -Math.round(Math.abs(Math.sin(phase * 4)) * 6) : 0;
+  target.rect(-7, y - 7, 14, 14).fill({ color: 0x181724 });
+  target.rect(-5, y - 5, 10, 10).fill({ color: kind === "security" ? 0x792f3b : 0x202337 });
+  if (kind === "done") {
+    for (const [px, py] of [[-3, 0], [-1, 2], [1, 0], [3, -2]]) {
+      target.rect(px, y + py, 2, 2).fill({ color });
+    }
+  } else {
+    target.rect(-1, y - 3, 2, 5).fill({ color });
+    target.rect(-1, y + 3, 2, 2).fill({ color });
+  }
+}
+
+function wrapBubble(message: string): string[] {
+  const clean = message.replace(/\s+/g, " ").trim().toUpperCase();
+  const words = clean.split(" ");
+  const lines = [""];
+  for (const word of words) {
+    const line = lines[lines.length - 1];
+    if (`${line}${line ? " " : ""}${word}`.length <= 22) {
+      lines[lines.length - 1] = `${line}${line ? " " : ""}${word}`;
+    } else if (lines.length < 2) {
+      lines.push(word.slice(0, 22));
+    } else {
+      lines[1] = `${lines[1].slice(0, 19)}...`;
+      break;
+    }
+  }
+  return lines.filter(Boolean);
+}
+
+function drawTaskBubble(target: Graphics, message: string): void {
+  target.clear();
+  const lines = wrapBubble(message);
+  const maxLength = Math.max(...lines.map((line) => line.length), 1);
+  const width = maxLength * 4 + 7;
+  const height = lines.length * 7 + 7;
+  target.rect(-Math.floor(width / 2), -height, width, height).fill({ color: 0x181724, alpha: 0.96 });
+  target.rect(-Math.floor(width / 2) + 2, -height + 2, width - 4, height - 4).fill({ color: 0x202337 });
+  target.rect(-2, 0, 4, 4).fill({ color: 0x181724 });
+  lines.forEach((line, index) => {
+    const lineLayer = new Graphics();
+    drawPixelText(lineLayer, line, { color: 0xf4e4cb, unit: 1 });
+    lineLayer.position.set(0, -height + 4 + index * 7);
+    target.addChild(lineLayer);
+  });
 }
 
 export interface OfficeSceneProps {
@@ -241,35 +357,17 @@ function syncSprites(
     body.scale.set(ZOOM);
     container.addChild(body);
 
-    const label = new Text({
-      text: agent.id,
-      style: { fill: 0xffffff, fontSize: 11, fontFamily: "monospace" },
-    });
-    label.anchor.set(0.5, 0);
-    label.position.set(0, 6);
+    const label = new Graphics();
+    drawAgentLabel(label, agent.id);
+    label.position.set(0, 9);
     container.addChild(label);
 
-    const badge = new Text({
-      text: "",
-      style: { fill: 0xffffff, fontSize: 16, fontFamily: "monospace" },
-    });
-    badge.anchor.set(0.5, 1);
-    badge.position.set(16, -TILE * ZOOM);
+    const badge = new Graphics();
+    badge.position.set(18, -TILE * ZOOM - 4);
     container.addChild(badge);
 
-    const bubble = new Text({
-      text: "",
-      style: {
-        fill: 0xf9fafb,
-        fontSize: 11,
-        fontFamily: "monospace",
-        wordWrap: true,
-        wordWrapWidth: 170,
-        align: "center",
-      },
-    });
-    bubble.anchor.set(0.5, 1);
-    bubble.position.set(0, -TILE * ZOOM - 6);
+    const bubble = new Graphics();
+    bubble.position.set(0, -TILE * ZOOM - 9);
     container.addChild(bubble);
 
     layer.addChild(container);
@@ -284,6 +382,7 @@ function syncSprites(
       badge,
       label,
       bubble,
+      bubbleText: "",
       target: { x: home.x, y: home.y },
       wanderPhase: Math.random() * 1000,
     });
@@ -341,48 +440,47 @@ function tick(
     const bobAmount = seated ? 1 : 2;
     const bob = Math.round(Math.sin((bundle.wanderPhase + i) * bobSpeed) * bobAmount);
     bundle.body.y = seated ? bob - 3 : bob;
-    bundle.body.scale.set(seated ? ZOOM * 0.92 : ZOOM);
+    // Character sprites always remain at the authored integer zoom. The old
+    // 0.92 seated scale introduced fractional sampling and visibly softened
+    // working agents compared with idle/done agents.
+    bundle.body.scale.set(ZOOM);
 
     const color = STATE_COLOR[agent.state] ?? 0x9ca3af;
-    bundle.statusDot.clear();
-    bundle.statusDot.circle(0, 4, 4).fill({ color });
-    if (agent.id === selectedId) {
-      bundle.statusDot.circle(0, 4, 7).stroke({ color: 0xffffff, width: 1 });
-    }
+    drawStatusMarker(bundle.statusDot, color, agent.id === selectedId);
 
     const securityAlert = securityAlertAgentIds.has(agent.id);
     if (securityAlert) {
       // Deliberately distinct from the ordinary "!" error badge below — a
       // workspace isolation violation is a security event, not a routine
       // CLI failure, and must not look the same at a glance (see SECURITY.md).
-      bundle.badge.text = "⚠";
-      bundle.badge.style.fill = 0xdc2626;
-      bundle.badge.style.fontSize = 20;
-      bundle.badge.y = -TILE * ZOOM - Math.abs(Math.sin(bundle.wanderPhase * 8)) * 5;
-      bundle.statusDot.circle(0, 4, 9 + Math.abs(Math.sin(bundle.wanderPhase * 8)) * 3).stroke({
-        color: 0xdc2626,
-        width: 2,
-      });
+      drawStatusBadge(bundle.badge, "security", bundle.wanderPhase);
+      const alertSize = 14 + Math.round(Math.abs(Math.sin(bundle.wanderPhase * 8)) * 2) * 2;
+      bundle.statusDot.rect(-alertSize / 2, -4, alertSize, 2).fill({ color: 0xe66a62 });
+      bundle.statusDot.rect(-alertSize / 2, 8, alertSize, 2).fill({ color: 0xe66a62 });
     } else if (agent.state === "done") {
-      bundle.badge.text = "✓";
-      bundle.badge.style.fill = 0x34d399;
-      bundle.badge.style.fontSize = 16;
-      bundle.badge.y = -TILE * ZOOM - Math.abs(Math.sin(bundle.wanderPhase * 4)) * 6;
+      drawStatusBadge(bundle.badge, "done", bundle.wanderPhase);
     } else if (agent.state === "error") {
-      bundle.badge.text = "!";
-      bundle.badge.style.fill = 0xef4444;
-      bundle.badge.style.fontSize = 16;
-      bundle.badge.y = -TILE * ZOOM;
+      drawStatusBadge(bundle.badge, "error", bundle.wanderPhase);
     } else {
-      bundle.badge.text = "";
+      drawStatusBadge(bundle.badge, null, bundle.wanderPhase);
     }
 
     const message = progressByAgent[agent.id];
     if (agent.state === "working" && message) {
-      bundle.bubble.text = truncate(message, 90);
+      const nextBubbleText = truncate(message, 44);
+      if (bundle.bubbleText !== nextBubbleText) {
+        bundle.bubble.removeChildren().forEach((child) => child.destroy());
+        drawTaskBubble(bundle.bubble, nextBubbleText);
+        bundle.bubbleText = nextBubbleText;
+      }
       bundle.bubble.visible = true;
     } else if (agent.state === "waiting") {
-      bundle.bubble.text = "waiting for workspace…";
+      const waiting = "WAITING FOR WORKSPACE...";
+      if (bundle.bubbleText !== waiting) {
+        bundle.bubble.removeChildren().forEach((child) => child.destroy());
+        drawTaskBubble(bundle.bubble, waiting);
+        bundle.bubbleText = waiting;
+      }
       bundle.bubble.visible = true;
     } else {
       bundle.bubble.visible = false;
