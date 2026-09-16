@@ -3,18 +3,21 @@ import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { Orchestrator, KNOWN_CAPABILITIES, type Agent, type OfficeEvent } from "@ai-office/core";
 import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
+import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 
 const PORT = Number(process.env.PORT ?? 4500);
 
 // Fixed roster for this phase: a stand-in for a future "what can this agent
 // do" profile. Master LLM capability inference would populate this
 // differently later, but the Orchestrator's matching logic wouldn't change.
-const AGENT_ELIGIBILITY: Record<string, string[]> = {
-  "agent-01": ["backend", "testing"],
-  "agent-02": ["backend", "testing"],
-  "agent-03": ["backend", "testing"],
-  "agent-04": ["frontend", "docs"],
-  "agent-05": ["frontend", "docs"],
+// agent-04/05 also double as the mixed-runtime demo: same capability
+// class as v0.3, now backed by a different CLI underneath.
+const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: string }> = {
+  "agent-01": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-02": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-03": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-04": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
+  "agent-05": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
 };
 
 const app = express();
@@ -33,16 +36,19 @@ function broadcast(event: OfficeEvent): void {
 }
 
 const orchestrator = new Orchestrator({
-  adapter: new ClaudeCodeAdapter(),
+  adapters: {
+    "claude-code": new ClaudeCodeAdapter(),
+    opencode: new OpenCodeAdapter(),
+  },
   broadcast,
 });
 
-function makeAgent(id: string, eligibleCapabilities: string[]): Agent {
+function makeAgent(id: string, runtime: string, eligibleCapabilities: string[]): Agent {
   const now = new Date().toISOString();
   return {
     id,
     state: "available",
-    runtime: "claude-code",
+    runtime,
     eligibleCapabilities,
     capabilities: [],
     createdAt: now,
@@ -50,8 +56,8 @@ function makeAgent(id: string, eligibleCapabilities: string[]): Agent {
   };
 }
 
-for (const [id, eligibleCapabilities] of Object.entries(AGENT_ELIGIBILITY)) {
-  orchestrator.registerAgent(makeAgent(id, eligibleCapabilities));
+for (const [id, { runtime, eligibleCapabilities }] of Object.entries(AGENT_ROSTER)) {
+  orchestrator.registerAgent(makeAgent(id, runtime, eligibleCapabilities));
 }
 
 wss.on("connection", (socket) => {

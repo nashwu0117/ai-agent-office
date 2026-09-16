@@ -11,7 +11,8 @@ export interface SubmitTaskInput {
 }
 
 export interface OrchestratorOptions {
-  adapter: RuntimeAdapter;
+  /** Maps agent.runtime (e.g. "claude-code", "opencode") to the adapter that runs it. */
+  adapters: Record<string, RuntimeAdapter>;
   broadcast: (event: OfficeEvent) => void;
   /** Delay (ms) an agent lingers in "releasing" before going back to "available". */
   releaseDelayMs?: number;
@@ -78,14 +79,14 @@ class KeyedLock {
 export class Orchestrator {
   private agents = new Map<string, Agent>();
   private tasks = new Map<string, Task>();
-  private readonly adapter: RuntimeAdapter;
+  private readonly adapters: Record<string, RuntimeAdapter>;
   private readonly broadcast: (event: OfficeEvent) => void;
   private readonly releaseDelayMs: number;
   private readonly now: () => string;
   private readonly workspaceLock = new KeyedLock();
 
   constructor(options: OrchestratorOptions) {
-    this.adapter = options.adapter;
+    this.adapters = options.adapters;
     this.broadcast = options.broadcast;
     this.releaseDelayMs = options.releaseDelayMs ?? 1500;
     this.now = options.now ?? (() => new Date().toISOString());
@@ -193,7 +194,11 @@ export class Orchestrator {
     await ready;
 
     try {
-      const handle = await this.adapter.start(task, agent);
+      const adapter = this.adapters[agent.runtime];
+      if (!adapter) {
+        throw new Error(`No RuntimeAdapter registered for runtime "${agent.runtime}"`);
+      }
+      const handle = await adapter.start(task, agent);
 
       this.setTaskStatus(task, "in_progress");
       this.setAgentState(agent, "working", task.id);

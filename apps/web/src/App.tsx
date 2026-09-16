@@ -18,6 +18,13 @@ interface CompletionCard {
   ok: boolean;
 }
 
+// Display-only labels — every agent still goes through the exact same UI
+// path regardless of runtime; this just makes the id readable.
+const RUNTIME_LABELS: Record<string, string> = {
+  "claude-code": "Claude Code",
+  opencode: "OpenCode",
+};
+
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:4500`;
 
 export default function App() {
@@ -221,6 +228,8 @@ export default function App() {
             <>
               <h2>{selectedAgent.id}</h2>
               <dl>
+                <dt>Runtime</dt>
+                <dd>{RUNTIME_LABELS[selectedAgent.runtime] ?? selectedAgent.runtime}</dd>
                 <dt>State</dt>
                 <dd>{selectedAgent.state}</dd>
                 <dt>Task</dt>
