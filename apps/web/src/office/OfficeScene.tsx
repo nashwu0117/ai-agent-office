@@ -18,14 +18,25 @@ const ROWS = 12;
 const WIDTH = COLS * SCREEN_TILE;
 const HEIGHT = ROWS * SCREEN_TILE;
 
-const WORKSTATION_ROW = 2;
-const DIVIDER_ROW = 5;
-const DIVIDER_GAP_COLS = new Set([9, 10]);
-const PUBLIC_HOME_ROW = 8;
-const PUBLIC_ROW_MIN = 6;
-const PUBLIC_ROW_MAX = 11;
+const WORKSTATIONS = [
+  { desk: [6, 2], seat: [6.5, 3] },
+  { desk: [9, 2], seat: [9.5, 3] },
+  { desk: [12, 2], seat: [12.5, 3] },
+  { desk: [6, 5], seat: [6.5, 6] },
+  { desk: [9, 5], seat: [9.5, 6] },
+] as const;
 
-const SEAT_COLS = [2, 6, 10, 14, 18];
+const SPARE_DESKS = [[12, 5]] as const;
+const PUBLIC_HOMES = [
+  [7.2, 10.3],
+  [8.85, 10.3],
+  [10.5, 10.3],
+  [12.15, 10.3],
+  [13.8, 10.3],
+] as const;
+const HORIZONTAL_DIVIDER_ROW = 7;
+const HORIZONTAL_GAPS = new Set([3, 4, 10, 16, 17]);
+const VERTICAL_GAP_ROWS = new Set([4]);
 
 const STATE_COLOR: Record<AgentState, number> = {
   created: 0x9ca3af,
@@ -235,7 +246,7 @@ export function OfficeScene({
       const worldLayer = new Container();
       app.stage.addChild(worldLayer);
       buildFloor(worldLayer, textures);
-      buildDivider(worldLayer, textures);
+      buildPartitions(worldLayer, textures);
       buildDecor(worldLayer, textures);
 
       const agentLayer = new Container();
@@ -277,12 +288,27 @@ function placeTile(layer: Container, texture: Texture, tx: number, ty: number): 
   return sprite;
 }
 
+function placeRotatedTile(layer: Container, texture: Texture, tx: number, ty: number): Sprite {
+  const sprite = new Sprite(texture);
+  sprite.anchor.set(0.5);
+  sprite.scale.set(ZOOM);
+  const pos = tileToScreen(tx + 0.5, ty + 0.5);
+  sprite.position.set(pos.x, pos.y);
+  sprite.angle = 90;
+  layer.addChild(sprite);
+  return sprite;
+}
+
 function buildFloor(layer: Container, textures: Record<AssetKey, Texture>): void {
   for (let ty = 0; ty < ROWS; ty += 1) {
     for (let tx = 0; tx < COLS; tx += 1) {
       if (ty === 0) {
         placeTile(layer, textures.wall_trim, tx, ty);
-      } else if (ty >= 1 && ty <= WORKSTATION_ROW + 2) {
+      } else if (
+        (tx >= 4 && tx <= 14 && ty >= 1 && ty <= 6) ||
+        (tx <= 6 && ty >= 8) ||
+        (tx >= 14 && ty >= 8)
+      ) {
         placeTile(layer, textures.floor_dark, tx, ty);
       } else {
         placeTile(layer, textures.floor_light, tx, ty);
@@ -291,31 +317,70 @@ function buildFloor(layer: Container, textures: Record<AssetKey, Texture>): void
   }
 }
 
-function buildDivider(layer: Container, textures: Record<AssetKey, Texture>): void {
+function buildPartitions(layer: Container, textures: Record<AssetKey, Texture>): void {
   for (let tx = 0; tx < COLS; tx += 1) {
-    if (DIVIDER_GAP_COLS.has(tx)) continue;
-    placeTile(layer, textures.divider_fence, tx, DIVIDER_ROW);
+    if (HORIZONTAL_GAPS.has(tx)) continue;
+    placeTile(layer, textures.divider_fence, tx, HORIZONTAL_DIVIDER_ROW);
+  }
+
+  for (const tx of [4, 15]) {
+    for (let ty = 1; ty <= 6; ty += 1) {
+      if (VERTICAL_GAP_ROWS.has(ty)) continue;
+      placeRotatedTile(layer, textures.divider_fence, tx, ty);
+    }
   }
 }
 
 function buildDecor(layer: Container, textures: Record<AssetKey, Texture>): void {
-  for (const col of SEAT_COLS) {
-    placeTile(layer, textures.desk_monitor, col, WORKSTATION_ROW);
+  // Reception: a staffed welcome desk, company plaque, noticeboard and files.
+  addZoneSign(layer, "RECEPTION", 2, 1.25, 0xf3c66b);
+  placeTile(layer, textures.wall_plaque, 1, 2);
+  placeTile(layer, textures.noticeboard, 3, 2);
+  placeTile(layer, textures.desk_monitor, 2, 4);
+  placeTile(layer, textures.stool, 2, 5);
+  placeTile(layer, textures.bookshelf, 0, 5);
+
+  // Main office: two disciplined desk rows, with one visible hot desk.
+  addZoneSign(layer, "OPEN OFFICE", 9.5, 1.25, 0x5fc98f);
+  for (const workstation of WORKSTATIONS) {
+    placeTile(layer, textures.desk_monitor, workstation.desk[0], workstation.desk[1]);
+  }
+  for (const [tx, ty] of SPARE_DESKS) {
+    placeTile(layer, textures.desk_monitor, tx, ty);
   }
 
-  placeTile(layer, textures.bookshelf, 0, PUBLIC_ROW_MIN);
-  placeTile(layer, textures.water_cooler, COLS - 1, PUBLIC_ROW_MIN);
-  placeTile(layer, textures.noticeboard, 0, PUBLIC_ROW_MAX);
-  placeTile(layer, textures.wall_plaque, COLS - 1, PUBLIC_ROW_MAX);
+  // Pantry / records: refreshment point plus storage along the right wall.
+  addZoneSign(layer, "PANTRY", 17.5, 1.25, 0x8da9d6);
+  placeTile(layer, textures.bookshelf, 15, 2);
+  placeTile(layer, textures.water_cooler, 19, 2);
+  placeTile(layer, textures.table, 17, 4);
+  placeTile(layer, textures.stool, 16, 4);
+  placeTile(layer, textures.stool, 18, 4);
+  layer.addChild(drawPixelBin(19, 5));
 
-  placeTile(layer, textures.table, 15, 9);
-  placeTile(layer, textures.stool, 14, 9);
-  placeTile(layer, textures.stool, 16, 9);
+  // Meeting corner: a three-tile conference table surrounded by seats.
+  addZoneSign(layer, "MEETING", 3.5, 8.25, 0xf3c66b);
+  for (const tx of [2, 3, 4]) placeTile(layer, textures.table, tx, 9);
+  for (const [tx, ty] of [[1, 9], [5, 9], [2, 10], [4, 10]]) {
+    placeTile(layer, textures.stool, tx, ty);
+  }
+  placeTile(layer, textures.noticeboard, 0, 9);
+
+  // Lounge: softer spacing, a side table and the water-cooler conversation spot.
+  addZoneSign(layer, "LOUNGE", 16.5, 8.25, 0xa78bfa);
+  placeTile(layer, textures.table, 17, 10);
+  placeTile(layer, textures.stool, 16, 10);
+  placeTile(layer, textures.stool, 18, 10);
+  placeTile(layer, textures.bookshelf, 19, 10);
+
+  addCompanyMark(layer, 2, 6.3);
 
   for (const [tx, ty] of [
-    [4, 9],
-    [8, 6],
-    [13, 10],
+    [0, 6],
+    [14, 6],
+    [15, 5],
+    [0, 10],
+    [14, 10],
   ]) {
     layer.addChild(drawPottedPlant(tx, ty));
   }
@@ -326,11 +391,55 @@ function drawPottedPlant(tx: number, ty: number): Graphics {
   const pos = tileToScreen(tx, ty + 1);
   g.position.set(pos.x, pos.y);
   const s = ZOOM;
-  g.rect(-4 * s, -6 * s, 8 * s, 6 * s).fill({ color: 0x8b5a2b });
-  g.circle(0, -10 * s, 6 * s).fill({ color: 0x2f855a });
-  g.circle(-4 * s, -8 * s, 4 * s).fill({ color: 0x38a169 });
-  g.circle(4 * s, -8 * s, 4 * s).fill({ color: 0x38a169 });
+  // Deliberately block-built on the same 3x zoom grid as the 16px tiles.
+  g.rect(-3 * s, -4 * s, 6 * s, 4 * s).fill({ color: 0x4c2b33 });
+  g.rect(-2 * s, -5 * s, 4 * s, s).fill({ color: 0xefa46f });
+  g.rect(-s, -10 * s, 2 * s, 5 * s).fill({ color: 0x286a53 });
+  g.rect(-4 * s, -9 * s, 3 * s, 3 * s).fill({ color: 0x5fc98f });
+  g.rect(s, -11 * s, 3 * s, 4 * s).fill({ color: 0x5fc98f });
+  g.rect(-2 * s, -13 * s, 3 * s, 4 * s).fill({ color: 0x34a76f });
   return g;
+}
+
+function drawPixelBin(tx: number, ty: number): Graphics {
+  const g = new Graphics();
+  const pos = tileToScreen(tx + 0.5, ty + 0.9);
+  g.position.set(pos.x, pos.y);
+  const s = ZOOM;
+  g.rect(-3 * s, -5 * s, 6 * s, 5 * s).fill({ color: 0x202337 });
+  g.rect(-4 * s, -6 * s, 8 * s, s).fill({ color: 0x747c96 });
+  g.rect(-2 * s, -4 * s, s, 3 * s).fill({ color: 0xb3bad0 });
+  g.rect(s, -4 * s, s, 3 * s).fill({ color: 0xb3bad0 });
+  return g;
+}
+
+function addZoneSign(layer: Container, label: string, tx: number, ty: number, accent: number): void {
+  const sign = new Graphics();
+  const width = label.length * 4 + 11;
+  sign.rect(-Math.floor(width / 2), -4, width, 14).fill({ color: 0x181724, alpha: 0.94 });
+  sign.rect(-Math.floor(width / 2) + 2, -2, 3, 10).fill({ color: accent });
+  const textLayer = new Graphics();
+  drawPixelText(textLayer, label, { color: 0xf4e4cb, unit: 1 });
+  textLayer.x = 2;
+  sign.addChild(textLayer);
+  const pos = tileToScreen(tx, ty);
+  sign.position.set(pos.x, pos.y);
+  layer.addChild(sign);
+}
+
+function addCompanyMark(layer: Container, tx: number, ty: number): void {
+  const mark = new Graphics();
+  mark.rect(-52, -18, 104, 36).fill({ color: 0x181724, alpha: 0.96 });
+  mark.rect(-48, -14, 96, 28).fill({ color: 0x82443f });
+  mark.rect(-44, -10, 10, 20).fill({ color: 0xf3c66b });
+  const label = new Graphics();
+  drawPixelText(label, "AI OFFICE", { color: 0xf4e4cb, unit: 2 });
+  label.x = 8;
+  label.y = -5;
+  mark.addChild(label);
+  const pos = tileToScreen(tx, ty);
+  mark.position.set(pos.x, pos.y);
+  layer.addChild(mark);
 }
 
 function syncSprites(
@@ -372,7 +481,8 @@ function syncSprites(
 
     layer.addChild(container);
 
-    const home = tileToScreen(SEAT_COLS[i % SEAT_COLS.length] + 0.5, PUBLIC_HOME_ROW);
+    const [homeX, homeY] = PUBLIC_HOMES[i % PUBLIC_HOMES.length];
+    const home = tileToScreen(homeX, homeY);
     container.position.set(home.x, home.y);
 
     sprites.set(agent.id, {
@@ -412,18 +522,17 @@ function tick(
     if (!bundle) return;
 
     const atDesk = isAtDesk(agent.state);
-    const seatCol = SEAT_COLS[i % SEAT_COLS.length];
+    const workstation = WORKSTATIONS[i % WORKSTATIONS.length];
 
     if (atDesk) {
-      const seat = tileToScreen(seatCol + 0.5, WORKSTATION_ROW + 1);
+      const seat = tileToScreen(workstation.seat[0], workstation.seat[1]);
       bundle.target.x = seat.x;
       bundle.target.y = seat.y;
     } else {
       bundle.wanderPhase += dt;
-      const wanderTileRange = 1.2;
-      const wanderRowRange = PUBLIC_ROW_MAX - PUBLIC_ROW_MIN - 1;
-      const wx = seatCol + 0.5 + Math.sin(bundle.wanderPhase * 0.5) * wanderTileRange;
-      const wy = PUBLIC_HOME_ROW + Math.cos(bundle.wanderPhase * 0.3) * (wanderRowRange / 3);
+      const [homeX, homeY] = PUBLIC_HOMES[i % PUBLIC_HOMES.length];
+      const wx = homeX + Math.sin(bundle.wanderPhase * 0.5) * 0.3;
+      const wy = homeY + Math.cos(bundle.wanderPhase * 0.3) * 0.25;
       const home = tileToScreen(wx, wy);
       bundle.target.x = home.x;
       bundle.target.y = home.y;
