@@ -2,6 +2,7 @@ import type { Agent, AgentState } from "../agent/types.js";
 import type { Task, TaskStatus } from "../task/types.js";
 import type { OfficeEvent } from "../events/types.js";
 import type { RuntimeAdapter, RuntimeEvent } from "../runtime/adapter.js";
+import type { WorkspaceGuard } from "../runtime/workspace-guard.js";
 
 export interface SubmitTaskInput {
   description: string;
@@ -20,6 +21,14 @@ export interface OrchestratorOptions {
   releaseDelayMs?: number;
   now?: () => string;
   idGen?: () => string;
+  /**
+   * Layer-1 safety net (see SECURITY.md): when set, every task execution is
+   * bracketed by a snapshot of this guard's protected repo, checked for
+   * out-of-workspace changes regardless of the worker process's own exit
+   * code, and auto-reverted if found. Optional so tests/environments
+   * without a protected repo to watch can omit it.
+   */
+  workspaceGuard?: WorkspaceGuard;
 }
 
 let counter = 0;
@@ -86,12 +95,14 @@ export class Orchestrator {
   private readonly releaseDelayMs: number;
   private readonly now: () => string;
   private readonly workspaceLock = new KeyedLock();
+  private readonly workspaceGuard?: WorkspaceGuard;
 
   constructor(options: OrchestratorOptions) {
     this.adapters = options.adapters;
     this.broadcast = options.broadcast;
     this.releaseDelayMs = options.releaseDelayMs ?? 1500;
     this.now = options.now ?? (() => new Date().toISOString());
+    this.workspaceGuard = options.workspaceGuard;
   }
 
   registerAgent(agent: Agent): void {
@@ -196,6 +207,14 @@ export class Orchestrator {
     }
     await ready;
 
+    // Layer-1 baseline (see SECURITY.md): snapshot the protected repo right
+    // before execution starts so any change observed after can be attributed
+    // to this task specifically, not to unrelated work happening elsewhere.
+    let guardBaseline: string[] | null = null;
+    if (this.workspaceGuard) {
+      guardBaseline = await this.workspaceGuard.snapshot().catch(() => null);
+    }
+
     try {
       const adapter = this.adapters[agent.runtime];
       if (!adapter) {
@@ -220,7 +239,30 @@ export class Orchestrator {
 
       const durationMs = Date.now() - startedAt;
 
-      if (exitCode === 0) {
+      // Checked regardless of exit code: a worker can exit 0 after writing
+      // somewhere it shouldn't have (that's exactly what happened in the
+      // incident this guard exists to catch) — a clean exit code alone is
+      // never sufficient evidence the task stayed inside its workspace.
+      const violation =
+        this.workspaceGuard && guardBaseline
+          ? await this.workspaceGuard.checkAndCapture(guardBaseline, task.workspacePath).catch(() => null)
+          : null;
+
+      if (violation) {
+        await this.workspaceGuard!.revert(violation).catch(() => {});
+        this.setTaskStatus(task, "failed");
+        this.setAgentState(agent, "error", task.id);
+        this.broadcast({
+          type: "task_failed",
+          taskId: task.id,
+          agentId: agent.id,
+          reason:
+            `Workspace isolation violation: execution modified ${violation.paths.length} path(s) ` +
+            `outside its assigned workspacePath (auto-reverted): ${violation.paths.join(", ")}`,
+          securityViolation: true,
+          affectedPaths: violation.paths,
+        });
+      } else if (exitCode === 0) {
         this.setTaskStatus(task, "done");
         this.setAgentState(agent, "done", task.id);
         this.broadcast({

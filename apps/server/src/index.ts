@@ -1,12 +1,21 @@
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { Orchestrator, GoalCoordinator, KNOWN_CAPABILITIES, type Agent, type OfficeEvent } from "@ai-office/core";
+import { GitRepoGuard } from "@ai-office/core/node";
 import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 
 const PORT = Number(process.env.PORT ?? 4500);
+
+// Layer-1 safety net (see SECURITY.md): this project's own checkout must
+// never be modified by worker execution, regardless of what workspacePath a
+// task actually targets. apps/server/src/index.ts -> apps/server/src -> up
+// 3 levels lands at the repo root (independent of npm workspaces' own cwd,
+// which is apps/server, not the repo root).
+const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 // Fixed roster for this phase: a stand-in for a future "what can this agent
 // do" profile. Master LLM capability inference would populate this
@@ -48,6 +57,7 @@ const orchestrator = new Orchestrator({
     "claude-code": new ClaudeCodeAdapter(),
     opencode: new OpenCodeAdapter(),
   },
+  workspaceGuard: new GitRepoGuard(REPO_ROOT),
   broadcast: (event) => {
     broadcast(event);
     goalCoordinator.observe(event);

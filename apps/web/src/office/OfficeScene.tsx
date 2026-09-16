@@ -64,9 +64,17 @@ export interface OfficeSceneProps {
   progressByAgent: Record<string, string>;
   selectedId: string | null;
   onSelect: (agentId: string) => void;
+  /** Agent ids with a just-happened workspace isolation violation — rendered as a distinct alert, not the normal error badge. */
+  securityAlertAgentIds?: Set<string>;
 }
 
-export function OfficeScene({ agents, progressByAgent, selectedId, onSelect }: OfficeSceneProps) {
+export function OfficeScene({
+  agents,
+  progressByAgent,
+  selectedId,
+  onSelect,
+  securityAlertAgentIds,
+}: OfficeSceneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const spritesRef = useRef<Map<string, SpriteBundle>>(new Map());
@@ -76,11 +84,13 @@ export function OfficeScene({ agents, progressByAgent, selectedId, onSelect }: O
   const progressRef = useRef(progressByAgent);
   const selectedRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
+  const securityAlertRef = useRef<Set<string>>(securityAlertAgentIds ?? new Set());
 
   agentsRef.current = agents;
   progressRef.current = progressByAgent;
   selectedRef.current = selectedId;
   onSelectRef.current = onSelect;
+  securityAlertRef.current = securityAlertAgentIds ?? new Set();
 
   useEffect(() => {
     let destroyed = false;
@@ -118,7 +128,14 @@ export function OfficeScene({ agents, progressByAgent, selectedId, onSelect }: O
 
       app.ticker.add((ticker) => {
         syncSprites(agentLayer, spritesRef.current, agentsRef.current, textures, onSelectRef.current);
-        tick(spritesRef.current, agentsRef.current, progressRef.current, selectedRef.current, ticker.deltaTime);
+        tick(
+          spritesRef.current,
+          agentsRef.current,
+          progressRef.current,
+          selectedRef.current,
+          securityAlertRef.current,
+          ticker.deltaTime
+        );
       });
     })();
 
@@ -286,6 +303,7 @@ function tick(
   agents: Agent[],
   progressByAgent: Record<string, string>,
   selectedId: string | null,
+  securityAlertAgentIds: Set<string>,
   deltaFrames: number
 ): void {
   const dt = deltaFrames / 60;
@@ -332,13 +350,28 @@ function tick(
       bundle.statusDot.circle(0, 4, 7).stroke({ color: 0xffffff, width: 1 });
     }
 
-    if (agent.state === "done") {
+    const securityAlert = securityAlertAgentIds.has(agent.id);
+    if (securityAlert) {
+      // Deliberately distinct from the ordinary "!" error badge below — a
+      // workspace isolation violation is a security event, not a routine
+      // CLI failure, and must not look the same at a glance (see SECURITY.md).
+      bundle.badge.text = "⚠";
+      bundle.badge.style.fill = 0xdc2626;
+      bundle.badge.style.fontSize = 20;
+      bundle.badge.y = -TILE * ZOOM - Math.abs(Math.sin(bundle.wanderPhase * 8)) * 5;
+      bundle.statusDot.circle(0, 4, 9 + Math.abs(Math.sin(bundle.wanderPhase * 8)) * 3).stroke({
+        color: 0xdc2626,
+        width: 2,
+      });
+    } else if (agent.state === "done") {
       bundle.badge.text = "✓";
       bundle.badge.style.fill = 0x34d399;
+      bundle.badge.style.fontSize = 16;
       bundle.badge.y = -TILE * ZOOM - Math.abs(Math.sin(bundle.wanderPhase * 4)) * 6;
     } else if (agent.state === "error") {
       bundle.badge.text = "!";
       bundle.badge.style.fill = 0xef4444;
+      bundle.badge.style.fontSize = 16;
       bundle.badge.y = -TILE * ZOOM;
     } else {
       bundle.badge.text = "";

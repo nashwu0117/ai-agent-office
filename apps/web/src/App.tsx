@@ -16,6 +16,7 @@ interface CompletionCard {
   summary: string;
   filesChanged: string[];
   ok: boolean;
+  securityViolation?: boolean;
 }
 
 type GoalStatus = "planning" | "planned" | "failed" | "summarized";
@@ -65,6 +66,7 @@ export default function App() {
   const [goalWorkspacePath, setGoalWorkspacePath] = useState("");
   const [goalSubmitting, setGoalSubmitting] = useState(false);
   const [goalFormError, setGoalFormError] = useState<string | null>(null);
+  const [securityAlertAgents, setSecurityAlertAgents] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
 
@@ -133,9 +135,20 @@ export default function App() {
             summary: msg.reason,
             filesChanged: [],
             ok: false,
+            securityViolation: msg.securityViolation,
           },
           ...prev,
         ]);
+        if (msg.securityViolation) {
+          setSecurityAlertAgents((prev) => new Set(prev).add(msg.agentId));
+          setTimeout(() => {
+            setSecurityAlertAgents((prev) => {
+              const next = new Set(prev);
+              next.delete(msg.agentId);
+              return next;
+            });
+          }, 6000);
+        }
         return;
       }
 
@@ -254,6 +267,7 @@ export default function App() {
             progressByAgent={progressByAgent}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            securityAlertAgentIds={securityAlertAgents}
           />
 
           <form className="task-form goal-form" onSubmit={handleGoalSubmit}>
@@ -338,9 +352,14 @@ export default function App() {
             {completions.map((c) => {
               const goalId = tasksById[c.taskId]?.goalId;
               return (
-                <div key={c.key} className={`completion-card ${c.ok ? "ok" : "fail"}`}>
+                <div
+                  key={c.key}
+                  className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : "fail"}`}
+                >
                   {goalId && <span className="goal-card-dot" style={{ background: goalColor(goalId) }} />}
-                  <strong>{c.ok ? "Task completed" : "Task failed"}</strong>
+                  <strong>
+                    {c.ok ? "Task completed" : c.securityViolation ? "⚠️ Workspace isolation violation" : "Task failed"}
+                  </strong>
                   <div>{c.summary}</div>
                   <div className="completion-meta">
                     agent: {c.agentId}

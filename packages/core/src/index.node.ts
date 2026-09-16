@@ -3,3 +3,4 @@
 // node:child_process for the browser. RuntimeAdapter implementations
 // (server-side only) import this subpath instead.
 export * from "./runtime/process-handle.js";
+export * from "./runtime/git-repo-guard.js";
