@@ -32,11 +32,13 @@
 html {
   min-width: 320px;
   background: var(--ink-950);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
   background-color: var(--ink-950);
   background-image:
     linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
@@ -87,6 +89,7 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   min-height: 650px;
 }
 
@@ -251,9 +254,12 @@ input[type="checkbox"] {
      dimensions so the authored 960x576 buffer can fit narrow viewports. */
   width: 100% !important;
   height: auto !important;
+  aspect-ratio: 5 / 3;
+  object-fit: contain;
   background: var(--wall);
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  touch-action: manipulation;
   border: 3px solid var(--outline);
   box-shadow: 0 0 0 2px var(--stone-500);
 }
@@ -824,10 +830,13 @@ input[type="checkbox"] {
   }
 }
 
-@media (max-width: 980px) {
+/* Tablet layout: preserve the two-column forms, but release the desktop
+   side rails into full-width content so the office remains the focal point. */
+@media (max-width: 1024px) {
   .app {
     height: auto;
     min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .app-body {
@@ -840,12 +849,25 @@ input[type="checkbox"] {
   }
 
   .queue-panel {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
     width: auto;
     min-height: 170px;
     overflow: visible;
     border-top: 4px solid var(--outline);
     border-left: 0;
     box-shadow: inset 0 2px 0 var(--stone-700);
+  }
+
+  .queue-panel h2,
+  .queue-panel .queue-empty {
+    grid-column: 1 / -1;
+  }
+
+  .queue-panel h2,
+  .queue-panel .queue-item {
+    margin-bottom: 0;
   }
 
   .detail-panel.open {
@@ -860,6 +882,44 @@ input[type="checkbox"] {
     box-shadow:
       inset 0 0 0 2px var(--stone-700),
       7px 7px 0 rgba(0, 0, 0, 0.55);
+  }
+
+  .task-form textarea,
+  .task-form input[type="text"] {
+    /* iOS Safari zooms the page when a focused form control is below 16px. */
+    font-size: 16px;
+    scroll-margin-block: 24vh;
+  }
+
+  .task-form textarea {
+    min-height: 96px;
+  }
+
+  .task-form input[type="text"],
+  .task-form button {
+    min-height: 48px;
+  }
+
+  .capability-picker {
+    align-items: stretch;
+    padding: 6px;
+  }
+
+  .capability-picker-label {
+    padding: 5px 4px 0;
+  }
+
+  .capability-checkbox {
+    min-height: 44px;
+    padding: 8px 10px;
+    background: var(--ink-900);
+    border: 1px solid var(--stone-700);
+  }
+
+  .capability-checkbox input {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
   }
 }
 
@@ -878,16 +938,73 @@ input[type="checkbox"] {
     display: none;
   }
 
-  .main-column {
+  .app-body {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
-    padding: 16px 12px 26px;
+    padding: 16px 0 max(26px, env(safe-area-inset-bottom));
+    background-image:
+      linear-gradient(90deg, transparent 0 7px, rgba(255, 255, 255, 0.018) 7px 8px),
+      linear-gradient(transparent 0 7px, rgba(255, 255, 255, 0.018) 7px 8px);
+    background-size: 8px 8px;
+  }
+
+  /* Flatten only the mobile layout container. This lets the detail and queue
+     panels join the content flow instead of covering or narrowing the scene. */
+  .main-column {
+    display: contents;
   }
 
   .office-canvas,
+  .task-form,
   .goal-panel,
   .completions {
     grid-column: 1;
+    width: auto;
+    margin-inline: 12px;
+  }
+
+  .office-canvas {
+    order: 1;
+  }
+
+  .detail-panel {
+    display: none;
+  }
+
+  .detail-panel.open {
+    position: static;
+    display: block;
+    order: 2;
+    width: auto;
+    max-height: min(62dvh, 520px);
+    margin-inline: 12px;
+    padding: 18px 14px;
+    overflow-y: auto;
+    border: 4px solid var(--outline);
+    box-shadow:
+      inset 0 0 0 2px var(--stone-700),
+      4px 4px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .goal-form {
+    order: 3;
+  }
+
+  .goal-panel {
+    order: 4;
+  }
+
+  .queue-panel {
+    order: 5;
+  }
+
+  .task-form:not(.goal-form) {
+    order: 6;
+  }
+
+  .completions {
+    order: 7;
   }
 
   .office-canvas {
@@ -921,11 +1038,28 @@ input[type="checkbox"] {
   }
 
   .queue-panel {
+    display: block;
     padding: 20px 14px 28px;
   }
 
   .queue-panel::before {
     margin: -20px -14px 16px;
+  }
+
+  .queue-panel h2,
+  .queue-panel .queue-item {
+    margin-bottom: 11px;
+  }
+
+  .queue-panel h2 {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    background: var(--ink-850);
+  }
+
+  .capability-checkbox {
+    flex: 1 1 calc(50% - 10px);
   }
 }
 
@@ -952,6 +1086,63 @@ input[type="checkbox"] {
 
   .capability-picker {
     gap: 10px;
+  }
+
+  .office-canvas,
+  .task-form,
+  .goal-panel,
+  .completions,
+  .detail-panel.open {
+    margin-inline: 8px;
+  }
+
+  .task-form {
+    padding: 13px;
+  }
+
+  .capability-checkbox {
+    flex-basis: 100%;
+  }
+}
+
+/* Phones in landscape get a compact scene + goal workspace instead of a
+   tall portrait stack stretched across a short viewport. */
+@media (max-width: 900px) and (max-height: 500px) and (orientation: landscape) {
+  .app-header {
+    min-height: 50px;
+    padding-block: 9px 8px;
+  }
+
+  .main-column {
+    grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+    gap: 14px;
+    padding-block: 12px 20px;
+  }
+
+  .office-canvas {
+    grid-column: 1;
+    padding: 33px 7px 7px;
+  }
+
+  .office-canvas::before {
+    height: 27px;
+    line-height: 25px;
+  }
+
+  .goal-form {
+    grid-column: 2;
+  }
+
+  .task-form:not(.goal-form),
+  .goal-panel,
+  .completions {
+    grid-column: 1 / -1;
+  }
+
+  .detail-panel.open {
+    top: 58px;
+    bottom: 8px;
+    max-height: none;
   }
 }
 
