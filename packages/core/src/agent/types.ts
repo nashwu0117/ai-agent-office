@@ -33,6 +33,17 @@ export interface Agent {
   runtime: string;
   model?: string;
   credential?: CredentialRef;
+  /**
+   * Capabilities this agent is *allowed* to be granted — a fixed roster
+   * fact set at registration time (stand-in for a future "what can this
+   * agent do" profile). Does not change while the agent is working.
+   */
+  eligibleCapabilities: string[];
+  /**
+   * Capabilities actually granted for the task currently assigned, i.e.
+   * task.requiredCapabilities copied over at assignment time. Empty
+   * whenever the agent is available. Always a subset of eligibleCapabilities.
+   */
   capabilities: string[];
   currentTaskId?: string;
   workspace?: AgentWorkspace;
