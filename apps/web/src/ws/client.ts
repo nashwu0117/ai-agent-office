@@ -13,12 +13,22 @@ export class OfficeClient {
   private socket: WebSocket | null = null;
   private listeners = new Set<Listener>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
 
   constructor(private readonly url: string) {}
 
   connect(): void {
+    if (this.disposed || this.socket) return;
     const socket = new WebSocket(this.url);
     this.socket = socket;
+
+    socket.onopen = () => {
+      // React StrictMode may dispose this client while the handshake is still
+      // in flight. Closing a CONNECTING WebSocket directly makes browsers log
+      // "closed before the connection is established". Let it finish the
+      // handshake, then close it normally instead.
+      if (this.disposed) socket.close(1000, "client disposed");
+    };
 
     socket.onmessage = (ev) => {
       try {
@@ -30,7 +40,12 @@ export class OfficeClient {
     };
 
     socket.onclose = () => {
-      this.reconnectTimer = setTimeout(() => this.connect(), 1500);
+      if (this.socket === socket) this.socket = null;
+      if (this.disposed) return;
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, 1500);
     };
   }
 
@@ -40,8 +55,17 @@ export class OfficeClient {
   }
 
   disconnect(): void {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.socket?.close();
+    this.disposed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const socket = this.socket;
+    if (!socket) return;
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.close(1000, "client disposed");
+    }
   }
 }
 
