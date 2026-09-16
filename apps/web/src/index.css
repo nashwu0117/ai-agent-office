@@ -1,0 +1,164 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0b0f1a;
+  color: #e5e7eb;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid #1f2937;
+}
+
+.app-header h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main-column {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.office-canvas {
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.task-form {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 500px;
+}
+
+.task-form textarea,
+.task-form input {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #e5e7eb;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.task-form button {
+  background: #34d399;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #04140e;
+}
+
+.task-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-error {
+  color: #f87171;
+  font-size: 12px;
+}
+
+.completions {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 600px;
+}
+
+.completion-card {
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid #374151;
+}
+
+.completion-card.ok {
+  border-color: #34d399;
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.completion-card.fail {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.completion-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.detail-panel {
+  width: 0;
+  overflow: hidden;
+  border-left: 1px solid #1f2937;
+  background: #0f172a;
+  transition: width 0.2s ease;
+}
+
+.detail-panel.open {
+  width: 340px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.detail-panel h2 {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+.detail-panel dl {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  row-gap: 6px;
+  font-size: 12px;
+}
+
+.detail-panel dt {
+  color: #9ca3af;
+}
+
+.cli-log {
+  margin-top: 8px;
+  background: #05070d;
+  border-radius: 6px;
+  padding: 8px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  max-height: 55vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cli-log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #d1d5db;
+}
