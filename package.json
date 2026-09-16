@@ -5,6 +5,7 @@
   "workspaces": [
     "packages/core",
     "packages/adapters/claude-code",
+    "packages/adapters/opencode",
     "apps/server",
     "apps/web"
   ],

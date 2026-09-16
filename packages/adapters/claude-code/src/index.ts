@@ -1,6 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { createInterface } from "node:readline";
-import type { Agent, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
+import type { Agent, JsonLine, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
+import { spawnRuntimeProcess } from "@ai-office/core/node";
 
 /**
  * Talks to the real `claude` CLI in headless/print mode. Verified against
@@ -19,9 +18,9 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     if (process.env.ANTHROPIC_AUTH_TOKEN) env.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
     if (agent.model) env.ANTHROPIC_MODEL = agent.model;
 
-    const child = spawn(
-      "claude",
-      [
+    return spawnRuntimeProcess({
+      command: "claude",
+      args: [
         "-p",
         task.description,
         "--output-format",
@@ -34,87 +33,21 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
         "--permission-mode",
         "acceptEdits",
       ],
-      {
-        cwd: task.workspacePath,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
-
-    return new ClaudeCodeHandle(child);
+      cwd: task.workspacePath,
+      env,
+      mapLine: mapClaudeCodeLine,
+    });
   }
 }
 
-class ClaudeCodeHandle implements RuntimeHandle {
-  private eventCbs: Array<(e: RuntimeEvent) => void> = [];
-  private exitCbs: Array<(code: number | null) => void> = [];
-  private stderrBuffer = "";
-
-  constructor(private readonly child: ChildProcess) {
-    const rl = createInterface({ input: child.stdout! });
-    rl.on("line", (line: string) => this.handleLine(line));
-
-    child.stderr!.on("data", (chunk: Buffer) => {
-      this.stderrBuffer += chunk.toString();
-    });
-
-    child.on("exit", (code) => {
-      if (code !== 0 && this.stderrBuffer.trim()) {
-        this.emit({
-          type: "error",
-          message: this.stderrBuffer.trim(),
-          timestamp: new Date().toISOString(),
-        });
-      }
-      for (const cb of this.exitCbs) cb(code);
-    });
-
-    child.on("error", (err) => {
-      this.emit({ type: "error", message: err.message, timestamp: new Date().toISOString() });
-    });
+function mapClaudeCodeLine(line: JsonLine): RuntimeEvent {
+  const timestamp = new Date().toISOString();
+  if (line.parsed === undefined) {
+    return { type: "log", message: line.raw, timestamp };
   }
 
-  onEvent(cb: (e: RuntimeEvent) => void): void {
-    this.eventCbs.push(cb);
-  }
-
-  onExit(cb: (code: number | null) => void): void {
-    this.exitCbs.push(cb);
-  }
-
-  stop(): void {
-    if (!this.child.killed) {
-      this.child.kill("SIGTERM");
-      setTimeout(() => {
-        if (!this.child.killed) this.child.kill("SIGKILL");
-      }, 3000);
-    }
-  }
-
-  private emit(event: RuntimeEvent): void {
-    for (const cb of this.eventCbs) cb(event);
-  }
-
-  private handleLine(line: string): void {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      this.emit({ type: "log", message: trimmed, timestamp: new Date().toISOString() });
-      return;
-    }
-
-    const message = messageFromParsedLine(parsed);
-    this.emit({
-      type: message.type,
-      message: message.text,
-      raw: parsed,
-      timestamp: new Date().toISOString(),
-    });
-  }
+  const message = messageFromParsedLine(line.parsed);
+  return { type: message.type, message: message.text, raw: line.parsed, timestamp };
 }
 
 function messageFromParsedLine(parsed: unknown): { type: RuntimeEvent["type"]; text: string } {
