@@ -271,7 +271,7 @@ export default function App() {
           />
 
           <form className="task-form goal-form" onSubmit={handleGoalSubmit}>
-            <div className="form-heading">🧠 High-level goal (Master plans it for you)</div>
+            <div className="form-heading">High-level goal (Master plans it for you)</div>
             <textarea
               placeholder="e.g. Add an install section to README.md, and add a simple string-utils test in utils/"
               value={goalText}
@@ -300,7 +300,7 @@ export default function App() {
                     <span className="goal-card-dot" style={{ background: goalColor(g.goalId) }} />
                     <strong>{g.goal}</strong>
                   </div>
-                  {g.status === "planning" && <div className="goal-card-status">🧠 Master is planning…</div>}
+                  {g.status === "planning" && <div className="goal-card-status">Master is planning…</div>}
                   {g.status === "planned" && (
                     <div className="goal-card-status">
                       Planned {g.taskCount} subtask{g.taskCount === 1 ? "" : "s"} — dispatching…
@@ -358,7 +358,7 @@ export default function App() {
                 >
                   {goalId && <span className="goal-card-dot" style={{ background: goalColor(goalId) }} />}
                   <strong>
-                    {c.ok ? "Task completed" : c.securityViolation ? "⚠️ Workspace isolation violation" : "Task failed"}
+                    {c.ok ? "Task completed" : c.securityViolation ? "! Workspace isolation violation" : "Task failed"}
                   </strong>
                   <div>{c.summary}</div>
                   <div className="completion-meta">
