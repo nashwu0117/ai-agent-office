@@ -20,8 +20,7 @@ const PLAN_TOOL_NAME = "submit_plan";
 
 const SYSTEM_PROMPT = `You are the Master planner for an AI office of headless coding-CLI workers.
 Each worker has real shell/file/git access inside one project working directory. Given a user's
-high-level goal, decompose it into a set of subtasks that can all be dispatched to workers and run
-in parallel, independently of one another (no subtask may depend on another subtask's output).
+high-level goal, decompose it into a set of subtasks to dispatch to workers.
 
 Rules:
 - Every task's "description" must read like a concrete, self-contained instruction you could hand
@@ -29,8 +28,23 @@ Rules:
   high-level goal.
 - "requiredCapabilities" may only use values from this fixed list: ${KNOWN_CAPABILITIES.join(", ")}.
   Never invent a new capability name. Pick the smallest accurate subset for each task.
-- Produce at least one task. Prefer several small, independent tasks over one large one when the
-  goal naturally splits that way.
+- Produce at least one task. Prefer several small tasks over one large one when the goal naturally
+  splits that way.
+- Most subtasks should be independent of one another so they can run in parallel — that is the
+  whole point of splitting a goal into several tasks. Only set "dependsOn" on a task when it
+  genuinely cannot start until a specific other task's work exists (e.g. it needs a schema field,
+  an endpoint, or a file that other task creates). Do not chain tasks together "to be safe": a plan
+  where every task depends on the previous one has lost all benefit of parallel dispatch and will be
+  rejected as over-cautious.
+- When used, "dependsOn" is an array of the exact "title" strings of the tasks it depends on (titles
+  from this same plan only — never invent a title that isn't one of your own tasks').
+- Example WITH a real dependency — goal "Add a discountCode field to the Order model, and show it on
+  the order summary page": task 1 title "Add discountCode field to Order model" (backend, no
+  dependsOn); task 2 title "Show discountCode on order summary page" (frontend, dependsOn: ["Add
+  discountCode field to Order model"]) because it must read the field name/shape task 1 creates.
+- Example WITHOUT a dependency — goal "Add a health check endpoint and write a CONTRIBUTING.md":
+  two tasks, one backend and one docs, neither sets dependsOn — they touch unrelated parts of the
+  project and can run at the same time.
 - Call the ${PLAN_TOOL_NAME} tool exactly once with the complete task list.`;
 
 const SUMMARY_SYSTEM_PROMPT = `You are the Master of an AI office reporting back to the user after
@@ -58,6 +72,13 @@ const PLAN_TOOL: Anthropic.Tool = {
             requiredCapabilities: {
               type: "array",
               items: { type: "string", enum: [...KNOWN_CAPABILITIES] },
+            },
+            dependsOn: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional. Exact 'title' strings of other tasks in this same plan that must finish " +
+                "first. Leave empty for the (common) case where this task is independent.",
             },
           },
           required: ["title", "description", "requiredCapabilities"],
@@ -188,10 +209,19 @@ function parsePlan(input: unknown): PlannedTask[] {
       throw new MasterPlanningError(`Task ${i} in submit_plan used unknown capabilities: ${unknown.join(", ")}`);
     }
 
+    let dependsOn: string[] | undefined;
+    if (obj.dependsOn !== undefined) {
+      if (!Array.isArray(obj.dependsOn) || !obj.dependsOn.every((d): d is string => typeof d === "string")) {
+        throw new MasterPlanningError(`Task ${i} in submit_plan has a dependsOn that is not an array of strings.`);
+      }
+      if (obj.dependsOn.length > 0) dependsOn = obj.dependsOn;
+    }
+
     return {
       title: obj.title,
       description: obj.description,
       requiredCapabilities: caps as PlannedTask["requiredCapabilities"],
+      dependsOn,
     };
   });
 }

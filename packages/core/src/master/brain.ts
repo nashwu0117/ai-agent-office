@@ -10,6 +10,15 @@ export interface PlannedTask {
   title: string;
   description: string;
   requiredCapabilities: Capability[];
+  /**
+   * Titles of other PlannedTask entries in this same plan() call that must
+   * finish before this one can start. Optional — most subtasks should leave
+   * this empty so the Orchestrator can dispatch them all in parallel; only
+   * set it when one subtask genuinely needs something a specific other one
+   * produces. Resolved to real Task ids (and checked for cycles) by
+   * resolveDependencies() before any Task is created.
+   */
+  dependsOn?: string[];
 }
 
 export interface TaskResultSummary {

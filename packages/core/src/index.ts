@@ -6,4 +6,5 @@ export * from "./runtime/workspace-guard.js";
 export * from "./events/types.js";
 export * from "./orchestrator/orchestrator.js";
 export * from "./master/brain.js";
+export * from "./master/dependency-graph.js";
 export * from "./master/goal-coordinator.js";

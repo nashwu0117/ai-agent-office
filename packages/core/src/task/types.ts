@@ -13,6 +13,7 @@ export type TaskStatus =
   | "in_progress"
   | "waiting"
   | "blocked"
+  | "blocked_failed_dependency"
   | "done"
   | "failed";
 
@@ -27,6 +28,13 @@ export interface Task {
   assignedAgentId?: string;
   /** Set when this task was one of several a Master decomposed from one high-level goal; groups it with its siblings. */
   goalId?: string;
+  /**
+   * Real ids of sibling tasks (same goalId) that must reach "done" before
+   * this one can leave "blocked" and enter the normal pending -> dispatch
+   * flow. Set once at creation from Master-declared dependencies; never
+   * changes afterward (no mid-run replanning).
+   */
+  dependsOn?: string[];
   createdAt: string;
   updatedAt: string;
 }
