@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, Task } from "@ai-office/core";
 import { KNOWN_CAPABILITIES } from "@ai-office/core";
-import { OfficeClient, submitTask } from "./ws/client.js";
+import { OfficeClient, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
 
 interface LogLine {
@@ -16,6 +16,28 @@ interface CompletionCard {
   summary: string;
   filesChanged: string[];
   ok: boolean;
+}
+
+type GoalStatus = "planning" | "planned" | "failed" | "summarized";
+
+interface GoalState {
+  goalId: string;
+  goal: string;
+  workspacePath: string;
+  status: GoalStatus;
+  taskCount?: number;
+  reason?: string;
+  summary?: string;
+  createdAt: number;
+}
+
+// Small fixed palette so subtasks sharing a goalId are visually grouped
+// (queue items, completion cards) without needing per-goal user input.
+const GOAL_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171"];
+function goalColor(goalId: string): string {
+  let hash = 0;
+  for (let i = 0; i < goalId.length; i++) hash = (hash * 31 + goalId.charCodeAt(i)) >>> 0;
+  return GOAL_COLORS[hash % GOAL_COLORS.length];
 }
 
 // Display-only labels — every agent still goes through the exact same UI
@@ -38,6 +60,11 @@ export default function App() {
   const [requiredCapabilities, setRequiredCapabilities] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [goalsById, setGoalsById] = useState<Record<string, GoalState>>({});
+  const [goalText, setGoalText] = useState("");
+  const [goalWorkspacePath, setGoalWorkspacePath] = useState("");
+  const [goalSubmitting, setGoalSubmitting] = useState(false);
+  const [goalFormError, setGoalFormError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
 
@@ -109,6 +136,44 @@ export default function App() {
           },
           ...prev,
         ]);
+        return;
+      }
+
+      if (msg.type === "goal_planning") {
+        setGoalsById((prev) => ({
+          ...prev,
+          [msg.goalId]: {
+            goalId: msg.goalId,
+            goal: msg.goal,
+            workspacePath: msg.workspacePath,
+            status: "planning",
+            createdAt: Date.now(),
+          },
+        }));
+        return;
+      }
+
+      if (msg.type === "goal_planned") {
+        setGoalsById((prev) => ({
+          ...prev,
+          [msg.goalId]: { ...prev[msg.goalId], status: "planned", taskCount: msg.taskCount },
+        }));
+        return;
+      }
+
+      if (msg.type === "goal_failed") {
+        setGoalsById((prev) => ({
+          ...prev,
+          [msg.goalId]: { ...prev[msg.goalId], status: "failed", reason: msg.reason },
+        }));
+        return;
+      }
+
+      if (msg.type === "goal_summary") {
+        setGoalsById((prev) => ({
+          ...prev,
+          [msg.goalId]: { ...prev[msg.goalId], status: "summarized", summary: msg.summary },
+        }));
       }
     });
 
@@ -140,6 +205,8 @@ export default function App() {
     [tasksById]
   );
 
+  const goalsSorted = useMemo(() => Object.values(goalsById).sort((a, b) => b.createdAt - a.createdAt), [goalsById]);
+
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
 
   function toggleCapability(cap: string) {
@@ -160,6 +227,20 @@ export default function App() {
     }
   }
 
+  async function handleGoalSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setGoalFormError(null);
+    setGoalSubmitting(true);
+    try {
+      await submitGoal({ goal: goalText, workspacePath: goalWorkspacePath });
+      setGoalText("");
+    } catch (err) {
+      setGoalFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGoalSubmitting(false);
+    }
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -175,7 +256,51 @@ export default function App() {
             onSelect={setSelectedId}
           />
 
+          <form className="task-form goal-form" onSubmit={handleGoalSubmit}>
+            <div className="form-heading">🧠 High-level goal (Master plans it for you)</div>
+            <textarea
+              placeholder="e.g. Add an install section to README.md, and add a simple string-utils test in utils/"
+              value={goalText}
+              onChange={(e) => setGoalText(e.target.value)}
+              rows={2}
+              required
+            />
+            <input
+              type="text"
+              placeholder="Local folder path (shared by every subtask), e.g. /home/you/some-project"
+              value={goalWorkspacePath}
+              onChange={(e) => setGoalWorkspacePath(e.target.value)}
+              required
+            />
+            <button type="submit" disabled={goalSubmitting}>
+              {goalSubmitting ? "Sending to Master…" : "Ask Master to plan & dispatch"}
+            </button>
+            {goalFormError && <div className="form-error">{goalFormError}</div>}
+          </form>
+
+          {goalsSorted.length > 0 && (
+            <div className="goal-panel">
+              {goalsSorted.map((g) => (
+                <div key={g.goalId} className="goal-card" style={{ borderLeftColor: goalColor(g.goalId) }}>
+                  <div className="goal-card-header">
+                    <span className="goal-card-dot" style={{ background: goalColor(g.goalId) }} />
+                    <strong>{g.goal}</strong>
+                  </div>
+                  {g.status === "planning" && <div className="goal-card-status">🧠 Master is planning…</div>}
+                  {g.status === "planned" && (
+                    <div className="goal-card-status">
+                      Planned {g.taskCount} subtask{g.taskCount === 1 ? "" : "s"} — dispatching…
+                    </div>
+                  )}
+                  {g.status === "failed" && <div className="goal-card-status goal-card-status-fail">Master planning failed: {g.reason}</div>}
+                  {g.status === "summarized" && <div className="goal-card-summary">{g.summary}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
           <form className="task-form" onSubmit={handleSubmit}>
+            <div className="form-heading">Manual task (pick capabilities yourself)</div>
             <textarea
               placeholder="Task description, e.g. Add a project intro section to README.md"
               value={description}
@@ -210,16 +335,20 @@ export default function App() {
           </form>
 
           <div className="completions">
-            {completions.map((c) => (
-              <div key={c.key} className={`completion-card ${c.ok ? "ok" : "fail"}`}>
-                <strong>{c.ok ? "Task completed" : "Task failed"}</strong>
-                <div>{c.summary}</div>
-                <div className="completion-meta">
-                  agent: {c.agentId}
-                  {c.filesChanged.length > 0 && <> · files: {c.filesChanged.join(", ")}</>}
+            {completions.map((c) => {
+              const goalId = tasksById[c.taskId]?.goalId;
+              return (
+                <div key={c.key} className={`completion-card ${c.ok ? "ok" : "fail"}`}>
+                  {goalId && <span className="goal-card-dot" style={{ background: goalColor(goalId) }} />}
+                  <strong>{c.ok ? "Task completed" : "Task failed"}</strong>
+                  <div>{c.summary}</div>
+                  <div className="completion-meta">
+                    agent: {c.agentId}
+                    {c.filesChanged.length > 0 && <> · files: {c.filesChanged.join(", ")}</>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -259,7 +388,11 @@ export default function App() {
           <h2>Queue ({pendingQueue.length})</h2>
           {pendingQueue.length === 0 && <div className="queue-empty">No tasks waiting for an agent.</div>}
           {pendingQueue.map((task) => (
-            <div key={task.id} className="queue-item">
+            <div
+              key={task.id}
+              className="queue-item"
+              style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
+            >
               <div className="queue-item-title">{task.title}</div>
               <div className="queue-item-meta">
                 needs: {task.requiredCapabilities.length > 0 ? task.requiredCapabilities.join(", ") : "any"}

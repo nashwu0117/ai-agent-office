@@ -219,3 +219,59 @@ body {
   color: #9ca3af;
   font-size: 11px;
 }
+
+.form-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.goal-panel {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 600px;
+}
+
+.goal-card {
+  border: 1px solid #374151;
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.goal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.goal-card-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.goal-card-status {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.goal-card-status-fail {
+  color: #f87171;
+}
+
+.goal-card-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #d1d5db;
+  white-space: pre-wrap;
+}

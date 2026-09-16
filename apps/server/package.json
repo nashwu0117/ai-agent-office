@@ -10,6 +10,7 @@
     "@ai-office/core": "*",
     "@ai-office/adapter-claude-code": "*",
     "@ai-office/adapter-opencode": "*",
+    "@ai-office/adapter-master-anthropic": "*",
     "express": "^4.19.2",
     "ws": "^8.18.0"
   },

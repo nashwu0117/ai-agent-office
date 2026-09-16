@@ -8,6 +8,8 @@ export interface SubmitTaskInput {
   workspacePath: string;
   title?: string;
   requiredCapabilities?: string[];
+  /** Set by GoalCoordinator when this task is one of several decomposed from one Master-planned goal. */
+  goalId?: string;
 }
 
 export interface OrchestratorOptions {
@@ -141,6 +143,7 @@ export class Orchestrator {
       workspacePath: input.workspacePath,
       requiredCapabilities: input.requiredCapabilities ?? [],
       status: "pending",
+      goalId: input.goalId,
       createdAt: this.now(),
       updatedAt: this.now(),
     };

@@ -25,6 +25,8 @@ export interface Task {
   requiredCapabilities: string[];
   status: TaskStatus;
   assignedAgentId?: string;
+  /** Set when this task was one of several a Master decomposed from one high-level goal; groups it with its siblings. */
+  goalId?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
-import { Orchestrator, KNOWN_CAPABILITIES, type Agent, type OfficeEvent } from "@ai-office/core";
+import { Orchestrator, GoalCoordinator, KNOWN_CAPABILITIES, type Agent, type OfficeEvent } from "@ai-office/core";
 import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
+import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 
 const PORT = Number(process.env.PORT ?? 4500);
 
@@ -35,13 +36,29 @@ function broadcast(event: OfficeEvent): void {
   }
 }
 
+// GoalCoordinator observes every event the Orchestrator broadcasts (in
+// addition to the events reaching clients as usual) so it can tell when all
+// subtasks of one Master-planned goal have settled. Declared with `let` and
+// assigned after `orchestrator` because the two reference each other; by the
+// time any event actually fires, both are constructed.
+let goalCoordinator: GoalCoordinator;
+
 const orchestrator = new Orchestrator({
   adapters: {
     "claude-code": new ClaudeCodeAdapter(),
     opencode: new OpenCodeAdapter(),
   },
-  broadcast,
+  broadcast: (event) => {
+    broadcast(event);
+    goalCoordinator.observe(event);
+  },
 });
+
+// Constructing this never throws even without ANTHROPIC_API_KEY set — see
+// AnthropicMasterBrain's constructor. The v0.1-v0.4 manual task path below
+// must keep working regardless of whether Master planning is configured.
+const master = new AnthropicMasterBrain();
+goalCoordinator = new GoalCoordinator({ orchestrator, master, broadcast });
 
 function makeAgent(id: string, runtime: string, eligibleCapabilities: string[]): Agent {
   const now = new Date().toISOString();
@@ -111,6 +128,24 @@ app.post("/api/tasks", async (req, res) => {
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+// Separate from POST /api/tasks above: the manual "user picks capabilities"
+// path is unchanged and stays fully available. This path hands the whole
+// decomposition + capability judgment to the Master instead.
+app.post("/api/goals", (req, res) => {
+  const { goal, workspacePath } = req.body ?? {};
+  if (typeof goal !== "string" || !goal.trim()) {
+    res.status(400).json({ error: "goal is required" });
+    return;
+  }
+  if (typeof workspacePath !== "string" || !workspacePath.trim()) {
+    res.status(400).json({ error: "workspacePath is required" });
+    return;
+  }
+
+  const { goalId } = goalCoordinator.submitGoal(goal, workspacePath);
+  res.status(202).json({ goalId });
 });
 
 httpServer.listen(PORT, () => {

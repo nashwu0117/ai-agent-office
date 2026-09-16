@@ -60,3 +60,15 @@ export async function submitTask(input: {
     throw new Error(body.error ?? `request failed with status ${res.status}`);
   }
 }
+
+export async function submitGoal(input: { goal: string; workspacePath: string }): Promise<void> {
+  const res = await fetch("/api/goals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+}

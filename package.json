@@ -6,6 +6,7 @@
     "packages/core",
     "packages/adapters/claude-code",
     "packages/adapters/opencode",
+    "packages/adapters/master-anthropic",
     "apps/server",
     "apps/web"
   ],
