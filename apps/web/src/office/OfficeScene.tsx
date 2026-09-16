@@ -348,6 +348,9 @@ function tick(
     if (agent.state === "working" && message) {
       bundle.bubble.text = truncate(message, 90);
       bundle.bubble.visible = true;
+    } else if (agent.state === "waiting") {
+      bundle.bubble.text = "waiting for workspace…";
+      bundle.bubble.visible = true;
     } else {
       bundle.bubble.visible = false;
     }

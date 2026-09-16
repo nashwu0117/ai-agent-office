@@ -122,6 +122,7 @@ export class Orchestrator {
       state,
       taskId: agent.currentTaskId,
       capabilities: agent.capabilities,
+      workspacePath: agent.workspace?.path,
     });
   }
 

@@ -134,7 +134,7 @@ body {
 
 .detail-panel dl {
   display: grid;
-  grid-template-columns: 90px 1fr;
+  grid-template-columns: 100px 1fr;
   row-gap: 6px;
   font-size: 12px;
 }
@@ -161,4 +161,61 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   color: #d1d5db;
+}
+
+.capability-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.capability-picker-label {
+  color: #9ca3af;
+}
+
+.capability-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.queue-panel {
+  width: 220px;
+  flex-shrink: 0;
+  border-left: 1px solid #1f2937;
+  background: #0f172a;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.queue-panel h2 {
+  margin-top: 0;
+  font-size: 15px;
+}
+
+.queue-empty {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.queue-item {
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.queue-item-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.queue-item-meta {
+  color: #9ca3af;
+  font-size: 11px;
 }

@@ -1,6 +1,6 @@
-import type { Agent, OfficeEvent } from "@ai-office/core";
+import type { Agent, OfficeEvent, Task } from "@ai-office/core";
 
-export type ServerMessage = OfficeEvent | { type: "snapshot"; agents: Agent[] };
+export type ServerMessage = OfficeEvent | { type: "snapshot"; agents: Agent[]; tasks: Task[] };
 
 type Listener = (msg: ServerMessage) => void;
 
@@ -45,7 +45,11 @@ export class OfficeClient {
   }
 }
 
-export async function submitTask(input: { description: string; workspacePath: string }): Promise<void> {
+export async function submitTask(input: {
+  description: string;
+  workspacePath: string;
+  requiredCapabilities: string[];
+}): Promise<void> {
   const res = await fetch("/api/tasks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
