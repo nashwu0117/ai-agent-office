@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { RuntimeEvent, RuntimeHandle } from "./adapter.js";
 import { parseJsonLine, type JsonLine } from "./json-lines.js";
+import { planSandboxedCommand } from "./sandbox.js";
 
 export interface SpawnRuntimeOptions {
   command: string;
@@ -21,7 +22,11 @@ export interface SpawnRuntimeOptions {
  * "log" event echoing the raw text).
  */
 export function spawnRuntimeProcess(options: SpawnRuntimeOptions): RuntimeHandle {
-  const child = spawn(options.command, options.args, {
+  // Layer-2 defense (see SECURITY.md): every worker CLI runs through a
+  // bubblewrap sandbox that makes the filesystem read-only outside
+  // options.cwd (== task.workspacePath), when bwrap is available.
+  const { command, args } = planSandboxedCommand(options.command, options.args, options.cwd);
+  const child = spawn(command, args, {
     cwd: options.cwd,
     env: options.env,
     stdio: ["ignore", "pipe", "pipe"],
