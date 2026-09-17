@@ -52,6 +52,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
 
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigningAgentId, setAssigningAgentId] = useState<string | null>(null);
+  const masterCliSession = credentialStatuses.find((source) => source.id === "claude-code-cli-session");
 
   if (!open) return null;
 
@@ -124,12 +125,41 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
           </button>
         </div>
 
+        <section className="bp-section" aria-labelledby="bp-master-heading">
+          <h3 id="bp-master-heading">Master Brain</h3>
+          <div className="bp-master-mode">
+            <div>
+              <strong>Claude subscription login</strong>
+              <p>
+                Runs <code>claude -p</code> in headless mode using the Claude Code CLI&apos;s existing Claude.ai
+                Pro/Max login session.
+              </p>
+            </div>
+            <span className={`bp-status-pill ${masterCliSession?.available ? "bp-status-ok" : "bp-status-bad"}`}>
+              {masterCliSession?.available ? "CLI session configured" : "CLI session unavailable"}
+            </span>
+          </div>
+          <dl className="bp-master-details">
+            <div>
+              <dt>Authentication</dt>
+              <dd>Claude.ai subscription session (OAuth)</dd>
+            </div>
+            <div>
+              <dt>Console API key</dt>
+              <dd>Not used</dd>
+            </div>
+            <div>
+              <dt>Structured output</dt>
+              <dd>CLI JSON + JSON Schema</dd>
+            </div>
+          </dl>
+        </section>
+
         <section className="bp-section" aria-labelledby="bp-credentials-heading">
           <h3 id="bp-credentials-heading">Credential sources</h3>
           <p className="bp-hint">
-            Detected from this server's own environment at startup. Values themselves are never shown here or
-            anywhere else — only whether a source looks usable. To add a credential, set the environment variable and
-            restart the server.
+            Runtime-agent credential sources only. Values themselves are never shown here — only whether a source
+            looks usable. Master Brain is subscription-only as shown above and never reads these API-key sources.
           </p>
           {credentialStatuses.length === 0 ? (
             <div className="bp-empty">No credential sources detected.</div>
