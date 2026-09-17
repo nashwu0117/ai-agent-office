@@ -82,6 +82,7 @@ export default function App() {
   const [securityAlertAgents, setSecurityAlertAgents] = useState<Set<string>>(new Set());
   const [credentialStatuses, setCredentialStatuses] = useState<CredentialSourceStatus[]>([]);
   const [backendProfiles, setBackendProfiles] = useState<BackendProfileClientInfo[]>([]);
+  const [defaultBackendProfile, setDefaultBackendProfileState] = useState<string | null>(null);
   const [backendPanelOpen, setBackendPanelOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -97,6 +98,7 @@ export default function App() {
         setTasksById(Object.fromEntries(msg.tasks.map((t) => [t.id, t])));
         setCredentialStatuses(msg.credentials);
         setBackendProfiles(msg.backendProfiles ?? []);
+        setDefaultBackendProfileState(msg.defaultBackendProfile ?? null);
         setAnnouncement(
           `Office updated. ${msg.agents.length} agent${msg.agents.length === 1 ? "" : "s"} and ${msg.tasks.length} task${msg.tasks.length === 1 ? "" : "s"} loaded.`
         );
@@ -121,6 +123,12 @@ export default function App() {
           prev.map((a) => (a.id === msg.agentId ? { ...a, backendProfile: msg.backendProfile } : a))
         );
         setAnnouncement(`${msg.agentId} reassigned to backend profile: ${msg.backendProfile ?? "official"}.`);
+        return;
+      }
+
+      if (msg.type === "default_backend_profile_changed") {
+        setDefaultBackendProfileState(msg.backendProfile);
+        setAnnouncement(`Default backend profile for unassigned agents is now: ${msg.backendProfile ?? "official"}.`);
         return;
       }
 
@@ -610,6 +618,7 @@ export default function App() {
         onClose={() => setBackendPanelOpen(false)}
         credentialStatuses={credentialStatuses}
         backendProfiles={backendProfiles}
+        defaultBackendProfile={defaultBackendProfile}
         agents={agents}
       />
     </div>
