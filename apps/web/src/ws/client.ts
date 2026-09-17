@@ -2,7 +2,14 @@ import type { Agent, CredentialSourceStatus, OfficeEvent, Task } from "@ai-offic
 
 export type ServerMessage =
   | OfficeEvent
-  | { type: "snapshot"; agents: Agent[]; tasks: Task[]; credentials: CredentialSourceStatus[] };
+  | {
+      type: "snapshot";
+      agents: Agent[];
+      tasks: Task[];
+      credentials: CredentialSourceStatus[];
+      /** v0.9: id/label/apiFormat for every registered BackendProfile — never secret values. See apps/server/src/index.ts BACKEND_PROFILES. */
+      backendProfiles?: Array<{ id: string; label: string; apiFormat: string }>;
+    };
 
 type Listener = (msg: ServerMessage) => void;
 

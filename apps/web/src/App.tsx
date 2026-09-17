@@ -9,6 +9,15 @@ interface LogLine {
   timestamp: number;
 }
 
+// v0.9: mirrors this server's own BACKEND_PROFILES registry
+// (apps/server/src/index.ts), sent once in the WS "snapshot" message — no
+// secret/URL data ever reaches the client, just id/label/apiFormat.
+interface BackendProfileInfo {
+  id: string;
+  label: string;
+  apiFormat: string;
+}
+
 interface CompletionCard {
   key: string;
   taskId: string;
@@ -18,6 +27,7 @@ interface CompletionCard {
   ok: boolean;
   securityViolation?: boolean;
   authFailure?: boolean;
+  backendProfileError?: boolean;
 }
 
 type GoalStatus = "planning" | "planned" | "failed" | "summarized";
@@ -50,6 +60,13 @@ const RUNTIME_LABELS: Record<string, string> = {
   opencode: "OpenCode",
 };
 
+// v0.9: display-only labels for a backendProfile's apiFormat, keyed by the
+// exact BackendProfile["apiFormat"] union value from @ai-office/core.
+const API_FORMAT_LABELS: Record<string, string> = {
+  anthropic: "Anthropic Messages API",
+  "openai-chat-completions": "OpenAI Chat Completions (translated)",
+};
+
 const SERVER_PORT = import.meta.env.VITE_SERVER_PORT ?? "43117";
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${SERVER_PORT}`;
 
@@ -71,6 +88,7 @@ export default function App() {
   const [goalFormError, setGoalFormError] = useState<string | null>(null);
   const [securityAlertAgents, setSecurityAlertAgents] = useState<Set<string>>(new Set());
   const [credentialStatuses, setCredentialStatuses] = useState<CredentialSourceStatus[]>([]);
+  const [backendProfiles, setBackendProfiles] = useState<BackendProfileInfo[]>([]);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
@@ -84,6 +102,7 @@ export default function App() {
         setAgents(msg.agents);
         setTasksById(Object.fromEntries(msg.tasks.map((t) => [t.id, t])));
         setCredentialStatuses(msg.credentials);
+        setBackendProfiles(msg.backendProfiles ?? []);
         setAnnouncement(
           `Office updated. ${msg.agents.length} agent${msg.agents.length === 1 ? "" : "s"} and ${msg.tasks.length} task${msg.tasks.length === 1 ? "" : "s"} loaded.`
         );
@@ -158,6 +177,7 @@ export default function App() {
             ok: false,
             securityViolation: msg.securityViolation,
             authFailure: msg.authFailure,
+            backendProfileError: msg.backendProfileError,
           },
           ...prev,
         ]);
@@ -172,7 +192,7 @@ export default function App() {
           }, 6000);
         }
         setAnnouncement(
-          `${msg.securityViolation ? "Security failure" : msg.authFailure ? "Authentication failure" : "Task failure"}: ${msg.taskId}, ${msg.reason}`
+          `${msg.securityViolation ? "Security failure" : msg.authFailure ? "Authentication failure" : msg.backendProfileError ? "Backend profile error" : "Task failure"}: ${msg.taskId}, ${msg.reason}`
         );
         return;
       }
@@ -452,13 +472,13 @@ export default function App() {
               return (
                 <article
                   key={c.key}
-                  className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : c.authFailure ? "auth" : "fail"}`}
+                  className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : c.authFailure ? "auth" : c.backendProfileError ? "backend" : "fail"}`}
                 >
                   {goalId && (
                     <span className="goal-card-dot" style={{ background: goalColor(goalId) }} aria-hidden="true" />
                   )}
                   <span className="status-icon" aria-hidden="true">
-                    {c.ok ? "✓" : c.securityViolation ? "⚠" : c.authFailure ? "🔑" : "✕"}
+                    {c.ok ? "✓" : c.securityViolation ? "⚠" : c.authFailure ? "🔑" : c.backendProfileError ? "⚙" : "✕"}
                   </span>{" "}
                   <strong>
                     {c.ok
@@ -467,7 +487,9 @@ export default function App() {
                         ? "Security failure: workspace isolation violation"
                         : c.authFailure
                           ? "Authentication failure"
-                          : "Task failed"}
+                          : c.backendProfileError
+                            ? "Backend profile error"
+                            : "Task failed"}
                   </strong>
                   <div>{c.summary}</div>
                   <div className="completion-meta">
@@ -487,6 +509,25 @@ export default function App() {
               <dl>
                 <dt>Runtime</dt>
                 <dd>{RUNTIME_LABELS[selectedAgent.runtime] ?? selectedAgent.runtime}</dd>
+                {selectedAgent.runtime === "claude-code" && (
+                  <>
+                    <dt>Backend</dt>
+                    <dd>
+                      {selectedAgent.backendProfile && selectedAgent.backendProfile !== "official"
+                        ? (backendProfiles.find((p) => p.id === selectedAgent.backendProfile)?.label ?? selectedAgent.backendProfile)
+                        : "Official (Anthropic)"}
+                    </dd>
+                    <dt>API format</dt>
+                    <dd>
+                      {selectedAgent.backendProfile && selectedAgent.backendProfile !== "official"
+                        ? (() => {
+                            const format = backendProfiles.find((p) => p.id === selectedAgent.backendProfile)?.apiFormat;
+                            return format ? (API_FORMAT_LABELS[format] ?? format) : "unknown (profile not registered)";
+                          })()
+                        : API_FORMAT_LABELS.anthropic}
+                    </dd>
+                  </>
+                )}
                 <dt>State</dt>
                 <dd>{selectedAgent.state}</dd>
                 <dt>Task</dt>
