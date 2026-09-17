@@ -1,8 +1,9 @@
 /**
  * v0.7: lets a provider (Anthropic API, a CLI's own login session, ...) be
  * backed by more than one credential and fail over between them, instead of
- * every consumer (AnthropicMasterBrain, ClaudeCodeAdapter, OpenCodeAdapter)
- * separately reading one hardcoded environment variable. This phase only
+ * every consumer separately reading one hardcoded environment variable.
+ * MasterBrain uses the Claude Code CLI session source (with no failover),
+ * while worker adapters may use environment-backed sources. This phase only
  * ships an environment-variable-backed CredentialSource (see
  * credentials/sources.ts, node-only) — a secrets-manager-backed one would
  * implement the same interface without any consumer changing.

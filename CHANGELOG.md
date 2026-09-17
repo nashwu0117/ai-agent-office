@@ -12,6 +12,24 @@ tag; their placement is reconstructed from commit content and chronological
 order in `git log`, and is this document's best-effort grouping rather than
 a verified historical record.
 
+## v0.10.1 — Master Brain via Claude Code subscription login
+
+Replaced the Master Brain's direct Anthropic Messages API SDK transport with
+Claude Code CLI headless mode (`claude -p --output-format json`). Planning
+uses `--json-schema` and parses `structured_output`, with a defensive text-
+JSON fallback and one retry for malformed model output. The subprocess has a
+hard timeout/output cap and strips all Anthropic API-key, auth-token, gateway,
+and alternate cloud-provider selectors so it can only use the operator's
+existing Claude.ai Pro/Max CLI login.
+
+CredentialRouter now models Master as one `claude-code-cli-session` source;
+API-key fallback remains available to worker routing but intentionally has no
+meaning for Master. The backend/credential panel labels Master as
+"Claude subscription login", says "Console API key: Not used", and shows the
+CLI JSON/JSON Schema transport. Added focused tests for structured output,
+one-shot parse retry, subscription-quota errors, environment scrubbing, and
+missing-session behavior.
+
 ## v0.1 — Initial agent loop
 
 Monorepo scaffold, core `Agent`/`Task`/`OfficeEvent` types and the

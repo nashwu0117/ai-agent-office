@@ -27,9 +27,10 @@ function envSourcesFor(baseVar: string, provider: string, idPrefix: string): Env
 /**
  * Builds the router this project actually runs with: every ANTHROPIC_API_KEY
  * / ANTHROPIC_AUTH_TOKEN (+ numbered _BACKUP variants) found in the current
- * environment under provider "anthropic" — shared by AnthropicMasterBrain
- * and ClaudeCodeAdapter, since both ultimately authenticate the same way —
- * plus one best-effort source per CLI-native adapter. `onChange` is called
+ * environment under provider "anthropic" for worker CLI routing, plus one
+ * best-effort source per CLI-native adapter. MasterBrain resolves only the
+ * `claude-code-cli-session` source and never consumes this API-key pool.
+ * `onChange` is called
  * (with the same shape as listStatuses()) whenever reportFailure() actually
  * changes a source's state, so the caller can push it to the UI live.
  */

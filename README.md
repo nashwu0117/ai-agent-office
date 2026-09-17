@@ -5,7 +5,7 @@ An open-source "AI company" office: instead of a wall of terminals, you see a
 Idle workers wander the Public/Talent Area; once assigned a task they walk to
 a workstation, work, and return when done.
 
-## Status: vertical slice (v0.7)
+## Status: vertical slice (v0.10.1)
 
 This is a progressively-built vertical slice, not the full product vision.
 So far:
@@ -24,9 +24,10 @@ So far:
 - **Two ways to get capabilities onto a task.** The original path still
   works unchanged: type a task description and check the capabilities it
   needs by hand. The new path: type one high-level goal, and a `MasterBrain`
-  (`packages/core/src/master/brain.ts`) — an LLM call, not a CLI subprocess
-  — decomposes it into several subtasks and judges each one's
-  `requiredCapabilities` itself, via Anthropic tool-use
+  (`packages/core/src/master/brain.ts`) spawns Claude Code in non-interactive
+  print mode (`claude -p`) using the operator's Claude.ai subscription login.
+  It decomposes the goal into several subtasks and judges each one's
+  `requiredCapabilities` itself, using the CLI's JSON Schema output
   (`packages/adapters/master-anthropic`). Both paths feed the exact same
   Orchestrator dispatch/matching/lock logic below them.
 - Subtasks from one goal share a `goalId`; once every one of them has
@@ -39,28 +40,22 @@ So far:
   detect-and-revert safety net behind it regardless. See
   [`SECURITY.md`](./SECURITY.md) for what's actually guaranteed, what isn't,
   and the incident that prompted it.
-- Provider credentials go through a `CredentialRouter`
-  (`packages/core/src/credentials`) instead of each piece reading one
-  hardcoded env var: `AnthropicMasterBrain` and `ClaudeCodeAdapter` both
-  resolve the same `"anthropic"` provider, so a second `ANTHROPIC_API_KEY_BACKUP`
-  is picked up automatically and, if the primary key ever gets a 401/403/429
-  from the live API, the very same `plan()`/`summarize()` call retries once
-  against the backup instead of failing outright. A source that fails is
-  skipped for the rest of that process — see "Setting up the Master" below.
-  The server logs every detected source's id/provider/availability at
-  startup (never the secret value), and the header shows a live
-  "Credentials: N/M available" pill fed by the same router.
+- Provider status goes through a `CredentialRouter`
+  (`packages/core/src/credentials`). Worker adapters may still resolve their
+  own API/backend sources, while `AnthropicMasterBrain` resolves only the
+  single `claude-code-cli-session` source. There is intentionally no Master
+  fallback pool: one Claude.ai subscription login is the only source.
 
 ## Prerequisites
 
 - Node.js 20+
-- The `claude` CLI installed and authenticated (`claude auth`), reachable on
-  your `PATH` — used by agents whose `runtime` is `"claude-code"`.
+- The `claude` CLI installed and authenticated with a Claude.ai Pro/Max
+  account (`claude auth login`), reachable on your `PATH` — used by Master
+  Brain and agents whose `runtime` is `"claude-code"`.
 - The `opencode` CLI installed and authenticated, reachable on your `PATH`
   — used by agents whose `runtime` is `"opencode"`. See below.
-- An Anthropic API credential for the **Master** planning step. See
-  "Setting up the Master" below — this is separate from the `claude` CLI's
-  own login.
+- No Anthropic Console account, API billing, `creds.env`, or
+  `ANTHROPIC_API_KEY` is required.
 
 ### Setting up OpenCode
 
@@ -91,50 +86,31 @@ in `apps/server/src/index.ts`, or pass a different `provider/model` string
 
 ### Setting up the Master
 
-`packages/adapters/master-anthropic` calls the Anthropic Messages API
-directly with the official SDK — it does **not** shell out to the `claude`
-CLI, so simply having `claude` logged in interactively does not cover it.
-Two credential shapes both work:
+`packages/adapters/master-anthropic` runs Claude Code in headless print mode:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...        # a raw API key, OR
-export ANTHROPIC_AUTH_TOKEN=sk-ant-oat...  # a long-lived token from `claude setup-token`
-                                            # (uses your Claude subscription, no separate API billing)
-# optional:
-export ANTHROPIC_BASE_URL=...         # custom endpoint, if you use one
-export ANTHROPIC_MASTER_MODEL=...     # defaults to claude-haiku-4-5-20251001
+claude auth login   # choose your Claude.ai Pro/Max account once
+claude auth status --json
+npm run dev
 ```
 
-before starting the server. **Model availability varies by credential.**
-This project's own `claude setup-token` credential consistently returned
-`429 rate_limit_error` for `claude-sonnet-5` (confirmed with isolated
-single-message calls, not assumed) but worked immediately on
-`claude-haiku-4-5-20251001` — that's why that's the hardcoded default. If
-your credential has different access, override it with
-`ANTHROPIC_MASTER_MODEL`.
+Each request uses `--output-format json`; planning additionally uses
+`--json-schema`, so the program reads `structured_output` from one clean CLI
+JSON envelope. For compatibility it can also parse JSON from the envelope's
+text `result`, including a fenced JSON block. A malformed plan is retried
+once and then fails explicitly. CLI/process errors, subscription limit
+errors, and the 120-second timeout are not blindly retried.
 
-**Optional: one or more backup credentials.** Set `ANTHROPIC_API_KEY_BACKUP`
-(and, if you need more, `_BACKUP2`/`_BACKUP3`/`_BACKUP4`) — or the same
-suffixes on `ANTHROPIC_AUTH_TOKEN` — to give the `CredentialRouter`
-somewhere to fail over to. If the primary gets a 401/403/429 from a live
-call, that source is marked failed for the rest of this process and the
-very same `plan()`/`summarize()` call retries once against the next
-available one, so a rotated/rate-limited key doesn't take down Master
-planning for the whole session (only a server restart clears a source
-marked failed — there's no automatic recovery in this phase). Both
-`ClaudeCodeAdapter` and `AnthropicMasterBrain` resolve the same
-`"anthropic"` provider from the router, so a backup key covers both.
+The Master subprocess explicitly deletes `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, their configured backup forms,
+and alternate cloud-provider selectors from its inherited environment. It
+therefore cannot silently switch to the old Console-key/gateway route.
+`AI_OFFICE_MASTER_MODEL` can optionally select a model; otherwise Claude
+Code uses the model available to the logged-in subscription.
 
-If no `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` (or backup) is set, or
-every configured one has already failed, the server still starts fine and
-every other feature (including the manual task path) keeps working — only
-`POST /api/goals` fails, cleanly, with a `goal_failed` event (`authFailure:
-true`) explaining the missing/exhausted credential instead of a crash. This
-was verified by hand in this project's own dev environment before a
-credential was added — that failure path is what actually ran before
-`claude setup-token` was used to add one. The server also logs every
-detected credential source's id/provider/availability at startup — check
-that output first if `POST /api/goals` isn't working as expected.
+See [`docs/claude-code-headless-master.md`](./docs/claude-code-headless-master.md)
+for the official-source research, exact flags, output contract, and live
+verification evidence.
 
 ## Running locally
 
@@ -208,7 +184,7 @@ packages/core                    shared types, event schema, Orchestrator (dispa
                                   (packages/core/src/credentials)
 packages/adapters/claude-code    Claude Code CLI adapter (implements RuntimeAdapter)
 packages/adapters/opencode       OpenCode CLI adapter (implements RuntimeAdapter)
-packages/adapters/master-anthropic  Anthropic Messages API MasterBrain (implements MasterBrain)
+packages/adapters/master-anthropic  Claude Code CLI headless MasterBrain (implements MasterBrain)
 apps/server                      WebSocket + REST server; registers the agent roster
                                   (id -> runtime -> eligibleCapabilities), the
                                   runtime -> adapter table, and the GoalCoordinator
@@ -225,9 +201,10 @@ CLI's own JSON line shape to a `RuntimeEvent`.
 
 `MasterBrain` (`packages/core/src/master/brain.ts`) is the analogous
 interface for the planning step: `plan(goal)` decomposes a goal into
-`PlannedTask[]`, `summarize(goal, results)` writes the final report. It
-calls an LLM API directly rather than wrapping a CLI subprocess, since
-Master never needs filesystem/shell access — only structured input/output.
+`PlannedTask[]`, `summarize(goal, results)` writes the final report. Its
+adapter invokes the logged-in Claude Code CLI as a restricted, headless
+subprocess and parses the CLI's JSON output; it never calls the Anthropic
+Messages API SDK or reads a Console API key.
 `GoalCoordinator` (`packages/core/src/master/goal-coordinator.ts`) sits
 beside the Orchestrator (not inside it): it turns one goal into several
 `Orchestrator.submitTask()` calls tagged with a shared `goalId`, and

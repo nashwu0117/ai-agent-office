@@ -5,10 +5,14 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
-    "@ai-office/core": "*",
-    "@anthropic-ai/sdk": "^0.126.0"
+    "@ai-office/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.11",
+    "tsx": "^4.16.2"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts"
   }
 }

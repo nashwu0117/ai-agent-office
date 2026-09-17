@@ -42,7 +42,7 @@ export interface MasterBrain {
 }
 
 export class MasterPlanningError extends Error {
-  /** True when this failure was caused by missing/invalid/exhausted provider credentials (see CredentialRouter), not a general planning failure (bad model output, network error, ...). */
+  /** True when this failure was caused by an unavailable login or exhausted provider usage, not a general planning failure (bad model output, network error, ...). */
   readonly authFailure: boolean;
 
   constructor(message: string, options?: { authFailure?: boolean }) {

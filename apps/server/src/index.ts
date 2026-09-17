@@ -130,10 +130,9 @@ function broadcast(event: OfficeEvent): void {
 // time any event actually fires, both are constructed.
 let goalCoordinator: GoalCoordinator;
 
-// v0.7: one router shared by every provider-authenticated piece of this
-// server (both CLI adapters + MasterBrain) so a credential added/failed in
-// one place is visible everywhere that resolves the same provider. See
-// packages/core/src/credentials.
+// One router shared by CLI adapters and MasterBrain for non-secret status.
+// MasterBrain resolves only the single `claude-code-cli-session` source; it
+// deliberately never resolves the Anthropic API-key pool used by workers.
 const credentialRouter = createDefaultCredentialRouter((statuses) => {
   broadcast({ type: "credential_status_changed", sources: statuses });
 });
@@ -165,9 +164,9 @@ const orchestrator = new Orchestrator({
   },
 });
 
-// Constructing this never throws even without ANTHROPIC_API_KEY set — see
-// AnthropicMasterBrain's constructor. The v0.1-v0.4 manual task path below
-// must keep working regardless of whether Master planning is configured.
+// Constructing this never throws without ANTHROPIC_API_KEY: Master uses the
+// logged-in Claude Code CLI subscription session, and the manual task path
+// remains independent of Master planning.
 const master = new AnthropicMasterBrain(credentialRouter);
 goalCoordinator = new GoalCoordinator({ orchestrator, master, broadcast });
 
@@ -366,13 +365,14 @@ httpServer.listen(PORT, () => {
   for (const s of credentialRouter.listStatuses()) {
     console.log(`  - ${s.provider}/${s.id}: ${s.available ? "available" : "unavailable"}`);
   }
-  if (!credentialRouter.resolve("anthropic")) {
-    console.warn(
-      "[ai-office] warning: no usable Anthropic credential detected — POST /api/goals (Master planning) " +
-        "will fail with a clear authFailure until ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set. " +
-        "See README 'Setting up the Master'."
-    );
-  }
+  const apiKeyState = process.env.ANTHROPIC_API_KEY?.trim() ? "set" : "unset";
+  const authTokenState = process.env.ANTHROPIC_AUTH_TOKEN?.trim() ? "set" : "unset";
+  const baseUrlState = process.env.ANTHROPIC_BASE_URL?.trim() ? "set" : "unset";
+  console.log("[ai-office] Master Brain: Claude Code CLI headless (`claude -p --output-format json`)");
+  console.log("[ai-office] Master Brain auth: Claude.ai Pro/Max subscription login; Console API keys are not used");
+  console.log(
+    `[ai-office] Master Brain parent API env: ANTHROPIC_API_KEY=${apiKeyState}, ANTHROPIC_AUTH_TOKEN=${authTokenState}, ANTHROPIC_BASE_URL=${baseUrlState}; all are stripped from the Master subprocess`
+  );
 
   // v0.8: same "surface at startup, not only on first dispatch" reasoning as
   // the credential-source logging above — id/label/which env vars only,
