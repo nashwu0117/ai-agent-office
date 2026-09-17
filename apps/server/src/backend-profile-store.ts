@@ -35,8 +35,15 @@ export interface BackendProfileUpdate {
  *
  * Persists to disk (apps/server/data/backend-profiles.json by default) on
  * every mutation. Once that file exists, it is the sole source of truth on
- * the next startup — the hardcoded defaults this is constructed with (see
- * index.ts's DEFAULT_BACKEND_PROFILES) are only ever a first-run seed.
+ * the next startup for every profile id it already contains — editing or
+ * deleting-then-recreating one of those through the management UI is never
+ * overridden back to the hardcoded default. But a *new* profile id added to
+ * DEFAULT_BACKEND_PROFILES by a later version of this codebase (e.g. the
+ * v0.13 nvidia-1..3/bai-1..3/experientiallabs-1 expansion) still needs to
+ * actually show up for an operator who already has a backend-profiles.json
+ * from an earlier version — see mergeMissingDefaults below, called only for
+ * ids genuinely absent from the persisted file, never touching one that's
+ * already there under any state.
  */
 export class BackendProfileStore {
   readonly registry: BackendProfileRegistry;
@@ -46,8 +53,25 @@ export class BackendProfileStore {
     private readonly filePath: string
   ) {
     const persisted = this.load();
-    this.registry = persisted ?? { ...defaults };
-    if (!persisted) this.persist();
+    if (persisted) {
+      this.registry = persisted;
+      this.mergeMissingDefaults(defaults);
+    } else {
+      this.registry = { ...defaults };
+      this.persist();
+    }
+  }
+
+  /** Adds any default profile id missing from an already-persisted registry; never touches an existing id. */
+  private mergeMissingDefaults(defaults: BackendProfileRegistry): void {
+    let changed = false;
+    for (const [id, profile] of Object.entries(defaults)) {
+      if (!this.registry[id]) {
+        this.registry[id] = profile;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
   }
 
   list(): BackendProfileClientInfo[] {
