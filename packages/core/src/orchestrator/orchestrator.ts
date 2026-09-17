@@ -314,11 +314,13 @@ export class Orchestrator {
       this.setAgentState(agent, "working", task.id);
 
       const filesChanged = new Set<string>();
+      let lastErrorMessage: string | undefined;
 
       handle.onEvent((event: RuntimeEvent) => {
         this.broadcast({ type: "agent_task_progress", agentId: agent.id, message: event.message });
         const maybeFile = extractFilePath(event.message);
         if (maybeFile) filesChanged.add(maybeFile);
+        if (event.type === "error") lastErrorMessage = event.message;
       });
 
       const exitCode = await new Promise<number | null>((resolve) => {
@@ -361,13 +363,23 @@ export class Orchestrator {
           filesChanged: [...filesChanged],
         });
       } else {
+        // A worker CLI failing outright (vs. a normal logic error) because
+        // its credential is missing/invalid is common enough (see
+        // CredentialRouter) to deserve its own reason, distinct from a plain
+        // nonzero exit — the message alone doesn't tell an operator whether
+        // re-running with a fixed credential would help. This is a stderr
+        // heuristic only, not a structured error classification.
+        const authFailure = isAuthFailureMessage(lastErrorMessage);
         this.setTaskStatus(task, "failed");
         this.setAgentState(agent, "error", task.id);
         this.broadcast({
           type: "task_failed",
           taskId: task.id,
           agentId: agent.id,
-          reason: `Process exited with code ${exitCode}`,
+          reason: authFailure
+            ? `Authentication failed while running "${agent.runtime}": ${lastErrorMessage}`
+            : `Process exited with code ${exitCode}`,
+          authFailure: authFailure || undefined,
         });
       }
     } catch (err) {
@@ -399,4 +411,14 @@ export class Orchestrator {
 function extractFilePath(message: string): string | undefined {
   const match = message.match(/Using (?:Edit|MultiEdit|Write|NotebookEdit):\s*([^\s|]+)/i);
   return match?.[1];
+}
+
+// Deliberately loose: worker CLIs are third-party processes whose stderr
+// wording isn't a stable contract, so this only needs to catch the common
+// shapes (see v0.7 scope notes) rather than classify every possible cause.
+const AUTH_FAILURE_PATTERN =
+  /\b(401|403)\b|unauthorized|invalid[_ -]?api[_ -]?key|invalid[_ -]?x-api-key|authentication_error|permission_error|not logged in|please (?:run|log ?in)/i;
+
+function isAuthFailureMessage(message: string | undefined): boolean {
+  return message !== undefined && AUTH_FAILURE_PATTERN.test(message);
 }

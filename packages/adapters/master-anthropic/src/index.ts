@@ -2,10 +2,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   KNOWN_CAPABILITIES,
   MasterPlanningError,
+  type CredentialRouter,
+  type CredentialSource,
   type MasterBrain,
   type PlannedTask,
   type TaskResultSummary,
 } from "@ai-office/core";
+import { EnvVarCredentialSource } from "@ai-office/core/node";
 
 // Fixed for this phase — see README for how to point this at a different
 // model your account actually has access to via ANTHROPIC_MASTER_MODEL.
@@ -17,6 +20,7 @@ import {
 // model, not assumed.
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const PLAN_TOOL_NAME = "submit_plan";
+const PROVIDER = "anthropic";
 
 const SYSTEM_PROMPT = `You are the Master planner for an AI office of headless coding-CLI workers.
 Each worker has real shell/file/git access inside one project working directory. Given a user's
@@ -95,51 +99,85 @@ const PLAN_TOOL: Anthropic.Tool = {
  * subprocess wrapper would add a parsing layer for no benefit here. See
  * MasterBrain (packages/core/src/master/brain.ts) for the interface a
  * future CodexMasterBrain/GeminiMasterBrain would implement instead.
+ *
+ * v0.7: credential resolution goes through CredentialRouter instead of
+ * reading ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN directly, so plan()/
+ * summarize() can fail over to a backup credential mid-call (see
+ * callWithFallback) instead of hard-failing the moment the first one errors.
  */
 export class AnthropicMasterBrain implements MasterBrain {
-  private readonly client: Anthropic | null;
+  private readonly router: CredentialRouter;
   private readonly model: string;
-  private readonly missingCredentialMessage: string | null;
+  private readonly baseURL: string | undefined;
 
-  constructor() {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
-    const baseURL = process.env.ANTHROPIC_BASE_URL;
+  constructor(router: CredentialRouter) {
+    this.router = router;
     this.model = process.env.ANTHROPIC_MASTER_MODEL ?? DEFAULT_MODEL;
+    this.baseURL = process.env.ANTHROPIC_BASE_URL;
+  }
 
-    if (!apiKey && !authToken) {
-      // Deliberately does not throw here: constructing this class happens once
-      // at server startup, and a missing credential must not crash the whole
-      // process (v0.1-v0.4's manual task path has to keep working regardless).
-      // The error only surfaces when plan()/summarize() is actually called.
-      this.client = null;
-      this.missingCredentialMessage =
-        "ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is not set. MasterBrain calls the Anthropic " +
-        "API directly and needs its own credential, separate from the claude CLI's own login — see README.";
-      return;
+  private buildClient(source: CredentialSource): Anthropic {
+    const value = source instanceof EnvVarCredentialSource ? source.readValue() : undefined;
+    const isAuthToken = source.envVar?.includes("AUTH_TOKEN") ?? false;
+    return new Anthropic({
+      apiKey: isAuthToken ? undefined : value,
+      authToken: isAuthToken ? value : undefined,
+      baseURL: this.baseURL,
+    });
+  }
+
+  /**
+   * Resolves a credential, runs `fn` against it, and on an auth/rate-limit
+   * error reports that source failed and retries against whatever the
+   * router resolves next — until either a call succeeds or no unattempted
+   * source is left, at which point the last error is rethrown as a
+   * MasterPlanningError with `authFailure` set so callers (GoalCoordinator)
+   * can show the user a credential-specific message instead of a generic one.
+   */
+  private async callWithFallback<T>(label: string, fn: (client: Anthropic) => Promise<T>): Promise<T> {
+    let source = this.router.resolve(PROVIDER);
+    if (!source) {
+      throw new MasterPlanningError(
+        "No Anthropic credential is currently available (none configured, or every configured one has " +
+          "already failed this session). MasterBrain calls the Anthropic API directly and needs its own " +
+          "credential, separate from the claude CLI's own login — see README.",
+        { authFailure: true }
+      );
     }
-    this.missingCredentialMessage = null;
-    this.client = new Anthropic({ apiKey, authToken, baseURL });
+
+    const attempted = new Set<string>();
+    for (;;) {
+      attempted.add(source.id);
+      try {
+        return await fn(this.buildClient(source));
+      } catch (err) {
+        const authRelated = isAuthOrRateLimitError(err);
+        if (authRelated) {
+          this.router.reportFailure(source.id, describeError(err));
+          const next = this.router.resolve(PROVIDER);
+          if (next && !attempted.has(next.id)) {
+            source = next;
+            continue;
+          }
+        }
+        throw new MasterPlanningError(`Master ${label} request failed: ${describeError(err)}`, {
+          authFailure: authRelated,
+        });
+      }
+    }
   }
 
   async plan(goal: string): Promise<PlannedTask[]> {
-    if (!this.client) throw new MasterPlanningError(this.missingCredentialMessage!);
-
-    let response: Anthropic.Message;
-    try {
-      response = await this.client.messages.create({
+    const response = await this.callWithFallback("planning", (client) =>
+      client.messages.create({
         model: this.model,
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools: [PLAN_TOOL],
         tool_choice: { type: "tool", name: PLAN_TOOL_NAME },
         messages: [{ role: "user", content: goal }],
-      });
-    } catch (err) {
-      throw new MasterPlanningError(
-        `Master planning request failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
+      })
+    );
 
     const toolUse = response.content.find(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === PLAN_TOOL_NAME
@@ -152,11 +190,8 @@ export class AnthropicMasterBrain implements MasterBrain {
   }
 
   async summarize(goal: string, results: TaskResultSummary[]): Promise<string> {
-    if (!this.client) throw new MasterPlanningError(this.missingCredentialMessage!);
-
-    let response: Anthropic.Message;
-    try {
-      response = await this.client.messages.create({
+    const response = await this.callWithFallback("summary", (client) =>
+      client.messages.create({
         model: this.model,
         max_tokens: 1024,
         system: SUMMARY_SYSTEM_PROMPT,
@@ -166,16 +201,27 @@ export class AnthropicMasterBrain implements MasterBrain {
             content: `Goal: ${goal}\n\nSubtask results (JSON):\n${JSON.stringify(results, null, 2)}`,
           },
         ],
-      });
-    } catch (err) {
-      throw new MasterPlanningError(
-        `Master summary request failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
+      })
+    );
 
     const text = response.content.find((block): block is Anthropic.TextBlock => block.type === "text");
     return text?.text?.trim() || "Master finished but returned no summary text.";
   }
+}
+
+function isAuthOrRateLimitError(err: unknown): boolean {
+  if (err && typeof err === "object" && "status" in err) {
+    const status = (err as { status?: unknown }).status;
+    if (status === 401 || status === 403 || status === 429) return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /\b(401|403|429)\b|unauthorized|invalid[_ -]?api[_ -]?key|authentication_error|permission_error|rate_limit/i.test(
+    message
+  );
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function parsePlan(input: unknown): PlannedTask[] {

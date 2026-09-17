@@ -1,4 +1,5 @@
 import type { AgentState } from "../agent/types.js";
+import type { CredentialSourceStatus } from "../credentials/types.js";
 import type { Task } from "../task/types.js";
 
 export type OfficeEvent =
@@ -22,8 +23,19 @@ export type OfficeEvent =
       securityViolation?: boolean;
       /** Repo-relative paths the violation touched outside the task's workspacePath, already auto-reverted. */
       affectedPaths?: string[];
+      /** True when this failure was caused by missing/invalid/exhausted provider credentials (see CredentialRouter), not an ordinary CLI/task failure. */
+      authFailure?: boolean;
     }
   | { type: "goal_planning"; goalId: string; goal: string; workspacePath: string }
   | { type: "goal_planned"; goalId: string; goal: string; taskCount: number }
-  | { type: "goal_failed"; goalId: string; goal: string; reason: string }
-  | { type: "goal_summary"; goalId: string; goal: string; summary: string };
+  | {
+      type: "goal_failed";
+      goalId: string;
+      goal: string;
+      reason: string;
+      /** True when Master planning itself failed for a credential reason (see MasterPlanningError.authFailure). */
+      authFailure?: boolean;
+    }
+  | { type: "goal_summary"; goalId: string; goal: string; summary: string }
+  /** Pushed whenever the server's CredentialRouter marks a source failed, so the UI's status pill stays live without polling. */
+  | { type: "credential_status_changed"; sources: CredentialSourceStatus[] };

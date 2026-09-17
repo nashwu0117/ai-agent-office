@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { Orchestrator, GoalCoordinator, KNOWN_CAPABILITIES, type Agent, type OfficeEvent } from "@ai-office/core";
-import { GitRepoGuard } from "@ai-office/core/node";
+import { GitRepoGuard, createDefaultCredentialRouter } from "@ai-office/core/node";
 import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
@@ -52,10 +52,18 @@ function broadcast(event: OfficeEvent): void {
 // time any event actually fires, both are constructed.
 let goalCoordinator: GoalCoordinator;
 
+// v0.7: one router shared by every provider-authenticated piece of this
+// server (both CLI adapters + MasterBrain) so a credential added/failed in
+// one place is visible everywhere that resolves the same provider. See
+// packages/core/src/credentials.
+const credentialRouter = createDefaultCredentialRouter((statuses) => {
+  broadcast({ type: "credential_status_changed", sources: statuses });
+});
+
 const orchestrator = new Orchestrator({
   adapters: {
-    "claude-code": new ClaudeCodeAdapter(),
-    opencode: new OpenCodeAdapter(),
+    "claude-code": new ClaudeCodeAdapter(credentialRouter),
+    opencode: new OpenCodeAdapter(credentialRouter),
   },
   workspaceGuard: new GitRepoGuard(REPO_ROOT),
   broadcast: (event) => {
@@ -67,7 +75,7 @@ const orchestrator = new Orchestrator({
 // Constructing this never throws even without ANTHROPIC_API_KEY set — see
 // AnthropicMasterBrain's constructor. The v0.1-v0.4 manual task path below
 // must keep working regardless of whether Master planning is configured.
-const master = new AnthropicMasterBrain();
+const master = new AnthropicMasterBrain(credentialRouter);
 goalCoordinator = new GoalCoordinator({ orchestrator, master, broadcast });
 
 function makeAgent(id: string, runtime: string, eligibleCapabilities: string[]): Agent {
@@ -90,9 +98,18 @@ for (const [id, { runtime, eligibleCapabilities }] of Object.entries(AGENT_ROSTE
 wss.on("connection", (socket) => {
   clients.add(socket);
   socket.send(
-    JSON.stringify({ type: "snapshot", agents: orchestrator.listAgents(), tasks: orchestrator.listTasks() })
+    JSON.stringify({
+      type: "snapshot",
+      agents: orchestrator.listAgents(),
+      tasks: orchestrator.listTasks(),
+      credentials: credentialRouter.listStatuses(),
+    })
   );
   socket.on("close", () => clients.delete(socket));
+});
+
+app.get("/api/credentials", (_req, res) => {
+  res.json(credentialRouter.listStatuses());
 });
 
 app.get("/api/agents", (_req, res) => {
@@ -160,4 +177,18 @@ app.post("/api/goals", (req, res) => {
 
 httpServer.listen(PORT, () => {
   console.log(`[ai-office] server listening on http://localhost:${PORT}`);
+  // v0.7: surfaced at startup instead of only discovered when a live call
+  // fails (that's exactly what v0.6.1's smoke test hit) — id/provider/
+  // available only, never the secret value itself.
+  console.log("[ai-office] credential sources:");
+  for (const s of credentialRouter.listStatuses()) {
+    console.log(`  - ${s.provider}/${s.id}: ${s.available ? "available" : "unavailable"}`);
+  }
+  if (!credentialRouter.resolve("anthropic")) {
+    console.warn(
+      "[ai-office] warning: no usable Anthropic credential detected — POST /api/goals (Master planning) " +
+        "will fail with a clear authFailure until ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set. " +
+        "See README 'Setting up the Master'."
+    );
+  }
 });

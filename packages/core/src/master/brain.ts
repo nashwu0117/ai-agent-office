@@ -41,4 +41,13 @@ export interface MasterBrain {
   summarize(goal: string, results: TaskResultSummary[]): Promise<string>;
 }
 
-export class MasterPlanningError extends Error {}
+export class MasterPlanningError extends Error {
+  /** True when this failure was caused by missing/invalid/exhausted provider credentials (see CredentialRouter), not a general planning failure (bad model output, network error, ...). */
+  readonly authFailure: boolean;
+
+  constructor(message: string, options?: { authFailure?: boolean }) {
+    super(message);
+    this.name = "MasterPlanningError";
+    this.authFailure = options?.authFailure ?? false;
+  }
+}

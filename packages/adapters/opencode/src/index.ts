@@ -1,5 +1,7 @@
-import type { Agent, JsonLine, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
+import type { Agent, CredentialRouter, JsonLine, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
 import { spawnRuntimeProcess } from "@ai-office/core/node";
+
+const PROVIDER = "opencode-native";
 
 /**
  * Talks to the real `opencode` CLI in headless mode. Verified against
@@ -20,8 +22,19 @@ import { spawnRuntimeProcess } from "@ai-office/core/node";
 const DEFAULT_MODEL = "opencode/nemotron-3.5-lightning-free";
 
 export class OpenCodeAdapter implements RuntimeAdapter {
+  constructor(private readonly credentials: CredentialRouter) {}
+
   async start(task: Task, agent: Agent): Promise<RuntimeHandle> {
     const env: NodeJS.ProcessEnv = { ...process.env };
+
+    // v0.7: OpenCode authenticates entirely through its own login-session
+    // store, not an env var (see README "Setting up OpenCode"), so there's
+    // nothing to inject here — but the availability check still goes through
+    // CredentialRouter (packages/core/src/credentials) like every other
+    // provider, so the startup log/UI status pill can show it consistently.
+    // Not used to gate dispatch: a false negative here must never stop the
+    // CLI from actually trying, since it manages its own login independently.
+    this.credentials.resolve(PROVIDER);
 
     return spawnRuntimeProcess({
       command: "opencode",

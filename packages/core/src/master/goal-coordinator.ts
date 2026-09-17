@@ -1,6 +1,6 @@
 import type { Orchestrator } from "../orchestrator/orchestrator.js";
 import type { OfficeEvent } from "../events/types.js";
-import type { MasterBrain, TaskResultSummary } from "./brain.js";
+import { MasterPlanningError, type MasterBrain, type TaskResultSummary } from "./brain.js";
 import { resolveDependencies } from "./dependency-graph.js";
 
 export interface GoalCoordinatorOptions {
@@ -61,6 +61,7 @@ export class GoalCoordinator {
         goalId,
         goal,
         reason: err instanceof Error ? err.message : String(err),
+        authFailure: err instanceof MasterPlanningError ? err.authFailure : undefined,
       });
       return;
     }

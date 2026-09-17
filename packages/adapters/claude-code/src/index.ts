@@ -1,5 +1,7 @@
-import type { Agent, JsonLine, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
-import { spawnRuntimeProcess } from "@ai-office/core/node";
+import type { Agent, CredentialRouter, JsonLine, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
+import { EnvVarCredentialSource, spawnRuntimeProcess } from "@ai-office/core/node";
+
+const PROVIDER = "anthropic";
 
 /**
  * Talks to the real `claude` CLI in headless/print mode. Verified against
@@ -11,11 +13,26 @@ import { spawnRuntimeProcess } from "@ai-office/core/node";
  * shape) is surfaced as a plain "log" event instead of crashing the adapter.
  */
 export class ClaudeCodeAdapter implements RuntimeAdapter {
+  constructor(private readonly credentials: CredentialRouter) {}
+
   async start(task: Task, agent: Agent): Promise<RuntimeHandle> {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (process.env.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
-    if (process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-    if (process.env.ANTHROPIC_AUTH_TOKEN) env.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+
+    // v0.7: routed through CredentialRouter (packages/core/src/credentials)
+    // instead of reading ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN directly, so
+    // a backup credential added there — or one AnthropicMasterBrain already
+    // marked the primary as failed — is picked up here too. A resolve() miss
+    // isn't fatal: the CLI falls back to its own `claude auth` login session,
+    // exactly as before this existed.
+    const source = this.credentials.resolve(PROVIDER);
+    if (source instanceof EnvVarCredentialSource) {
+      const value = source.readValue();
+      if (value) {
+        if (source.envVar.includes("AUTH_TOKEN")) env.ANTHROPIC_AUTH_TOKEN = value;
+        else env.ANTHROPIC_API_KEY = value;
+      }
+    }
     if (agent.model) env.ANTHROPIC_MODEL = agent.model;
 
     return spawnRuntimeProcess({
