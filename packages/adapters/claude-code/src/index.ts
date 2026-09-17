@@ -1,5 +1,14 @@
-import type { Agent, CredentialRouter, JsonLine, RuntimeAdapter, RuntimeEvent, RuntimeHandle, Task } from "@ai-office/core";
-import { EnvVarCredentialSource, spawnRuntimeProcess } from "@ai-office/core/node";
+import type {
+  Agent,
+  BackendProfileRegistry,
+  CredentialRouter,
+  JsonLine,
+  RuntimeAdapter,
+  RuntimeEvent,
+  RuntimeHandle,
+  Task,
+} from "@ai-office/core";
+import { EnvVarCredentialSource, resolveBackendEnv, spawnRuntimeProcess } from "@ai-office/core/node";
 
 const PROVIDER = "anthropic";
 
@@ -13,24 +22,67 @@ const PROVIDER = "anthropic";
  * shape) is surfaced as a plain "log" event instead of crashing the adapter.
  */
 export class ClaudeCodeAdapter implements RuntimeAdapter {
-  constructor(private readonly credentials: CredentialRouter) {}
+  constructor(
+    private readonly credentials: CredentialRouter,
+    // v0.8: agents whose backendProfile isn't "official"/unset get their
+    // ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN overridden per spawned
+    // process instead of resolving the shared CredentialRouter pool below —
+    // see docs/cc-switch-research.md for why this is direct env injection
+    // rather than going through cc-switch.
+    private readonly backendProfiles: BackendProfileRegistry = {},
+    // v0.9: base URL of this server's own local format-translation proxy
+    // (apps/server/src/proxy-server.ts), e.g. "http://127.0.0.1:43120".
+    // A backendProfile-routed agent's spawned process is pointed at
+    // `${proxyBaseUrl}/${profileId}/` instead of the real third-party
+    // backend directly — the proxy resolves the real base URL/token and,
+    // for apiFormat "openai-chat-completions" profiles, translates the
+    // request/response. Undefined only in tests that don't exercise a
+    // backendProfile-routed agent.
+    private readonly proxyBaseUrl?: string
+  ) {}
 
   async start(task: Task, agent: Agent): Promise<RuntimeHandle> {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (process.env.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
 
-    // v0.7: routed through CredentialRouter (packages/core/src/credentials)
-    // instead of reading ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN directly, so
-    // a backup credential added there — or one AnthropicMasterBrain already
-    // marked the primary as failed — is picked up here too. A resolve() miss
-    // isn't fatal: the CLI falls back to its own `claude auth` login session,
-    // exactly as before this existed.
-    const source = this.credentials.resolve(PROVIDER);
-    if (source instanceof EnvVarCredentialSource) {
-      const value = source.readValue();
-      if (value) {
-        if (source.envVar.includes("AUTH_TOKEN")) env.ANTHROPIC_AUTH_TOKEN = value;
-        else env.ANTHROPIC_API_KEY = value;
+    // resolveBackendEnv still throws BackendProfileError (caught by
+    // Orchestrator.runTask, surfaced as task_failed with
+    // backendProfileError: true) before any process is spawned if
+    // agent.backendProfile is set but unresolvable — unregistered id, or
+    // its real baseUrlEnvVar/authTokenEnvVar aren't set on this server's
+    // own process env. Its *return value* (the real backend's base
+    // URL/token) is deliberately unused below: as of v0.9 those are read by
+    // proxy-server.ts per-request instead, never by the spawned CLI process
+    // itself, so a backend switch or an apiFormat change never requires
+    // touching this adapter.
+    const backendOverride = resolveBackendEnv(agent.backendProfile, this.backendProfiles);
+    if (backendOverride) {
+      if (!this.proxyBaseUrl) {
+        throw new Error(
+          `Agent "${agent.id}" has backendProfile "${agent.backendProfile}" but this server's format-translation proxy isn't available.`
+        );
+      }
+      env.ANTHROPIC_BASE_URL = `${this.proxyBaseUrl.replace(/\/$/, "")}/${agent.backendProfile}/`;
+      // The CLI still requires a non-empty token to treat the endpoint as
+      // authenticated; the proxy ignores it and authenticates to the real
+      // backend itself with the credential resolveBackendEnv just verified
+      // is present — this value is never sent past the local proxy hop.
+      env.ANTHROPIC_AUTH_TOKEN = "ai-office-local-proxy";
+      delete env.ANTHROPIC_API_KEY;
+    } else {
+      // v0.7: routed through CredentialRouter (packages/core/src/credentials)
+      // instead of reading ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN directly, so
+      // a backup credential added there — or one AnthropicMasterBrain already
+      // marked the primary as failed — is picked up here too. A resolve() miss
+      // isn't fatal: the CLI falls back to its own `claude auth` login session,
+      // exactly as before this existed.
+      const source = this.credentials.resolve(PROVIDER);
+      if (source instanceof EnvVarCredentialSource) {
+        const value = source.readValue();
+        if (value) {
+          if (source.envVar.includes("AUTH_TOKEN")) env.ANTHROPIC_AUTH_TOKEN = value;
+          else env.ANTHROPIC_API_KEY = value;
+        }
       }
     }
     if (agent.model) env.ANTHROPIC_MODEL = agent.model;
