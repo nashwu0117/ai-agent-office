@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("./assets/fonts/PixelifySans-wght.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --ink-950: #0c0d16;
@@ -23,8 +31,8 @@
   --focus: #fff2a8;
   --outline: #181724;
   --pixel-shadow: 4px 4px 0 var(--outline);
-  --font-ui: "DejaVu Sans Mono", "Lucida Console", "Courier New", monospace;
-  --font-pixel: "Courier New", "Lucida Console", monospace;
+  --font-ui: "Pixelify Sans", "DejaVu Sans Mono", monospace;
+  --font-pixel: "Pixelify Sans", "DejaVu Sans Mono", monospace;
 }
 
 * {
@@ -248,6 +256,7 @@ input[type="checkbox"] {
 .main-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 20px;
   flex: 1;
@@ -1016,6 +1025,18 @@ input[type="checkbox"] {
 @keyframes warning-flash {
   50% {
     background-color: var(--danger-dark);
+  }
+}
+
+/* Desktop is a viewport-sized application shell: the center and side
+   columns own their scrolling. Keeping the shell out of document flow
+   prevents their overflow content from creating a second, blank root-page
+   scroll area below the app. Tablet/mobile switch back to document flow. */
+@media (min-width: 1025px) {
+  .app {
+    position: fixed;
+    inset: 0;
+    min-height: 0;
   }
 }
 

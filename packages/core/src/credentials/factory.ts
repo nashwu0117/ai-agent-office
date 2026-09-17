@@ -10,9 +10,14 @@ import type { CredentialRouter, CredentialSource, CredentialSourceStatus } from 
 // good enough for "a couple of fallback keys", not a general secrets store.
 const BACKUP_SUFFIXES = ["_BACKUP", "_BACKUP2", "_BACKUP3", "_BACKUP4"];
 
-function envSourcesFor(baseVar: string, provider: string, idPrefix: string): EnvVarCredentialSource[] {
+function envSourcesFor(
+  baseVar: string,
+  provider: string,
+  idPrefix: string,
+  alwaysIncludePrimary = false
+): EnvVarCredentialSource[] {
   const sources: EnvVarCredentialSource[] = [];
-  if (process.env[baseVar] !== undefined) {
+  if (alwaysIncludePrimary || process.env[baseVar] !== undefined) {
     sources.push(new EnvVarCredentialSource(`${idPrefix}-primary`, provider, baseVar));
   }
   BACKUP_SUFFIXES.forEach((suffix, i) => {
@@ -42,7 +47,12 @@ export function createDefaultCredentialRouter(onChange?: (statuses: CredentialSo
     // Claude Code reads ANTHROPIC_API_KEY (see ClineAdapter) — a resolve()
     // miss isn't fatal, since a `cline auth` login session cached under
     // ~/.cline is a valid fallback, same story as OpenCode below.
-    ...envSourcesFor("CLINE_API_KEY", "cline", "cline-key"),
+    // `alwaysIncludePrimary: true` (found missing during the v0.14 readiness
+    // check) — unlike the Anthropic pool above, this is the only credential
+    // source agent-07 has, so it must always appear in the "Credential
+    // sources" panel (as Available/Unavailable) rather than silently vanish
+    // whenever CLINE_API_KEY isn't set yet.
+    ...envSourcesFor("CLINE_API_KEY", "cline", "cline-key", true),
 
     // Claude Code CLI can authenticate via `claude auth` login session
     // instead of an env var (see README) — there is no reliable way to

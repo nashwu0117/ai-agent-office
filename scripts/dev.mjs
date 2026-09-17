@@ -192,7 +192,17 @@ function processSpec(role, serverPort, webPort) {
   if (role === "server") {
     return {
       cwd: join(repoRoot, "apps", "server"),
-      args: [join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"), "watch", "src/index.ts"],
+      // --env-file-if-exists loads apps/server/.env.local (git-ignored) so the
+      // backend-profile env vars documented in docs/backend-profiles-v0.13.md
+      // actually reach process.env — found missing during the v0.14 readiness
+      // check (the profiles' "available" flag always read false since nothing
+      // ever loaded that file into this process).
+      args: [
+        "--env-file-if-exists=.env.local",
+        join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"),
+        "watch",
+        "src/index.ts",
+      ],
       env: { AI_OFFICE_SERVER_PORT: String(serverPort) },
     };
   }

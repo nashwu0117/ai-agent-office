@@ -1,5 +1,14 @@
 # Asset license
 
+## Pixelify Sans (`fonts/`)
+
+- Source: https://github.com/google/fonts/tree/main/ofl/pixelifysans
+- Copyright: 2021 The Pixelify Sans Project Authors
+- License: SIL Open Font License 1.1; the complete license is included as
+  [`fonts/OFL.txt`](./fonts/OFL.txt).
+- The variable font is bundled locally so the interface keeps its pixel
+  typography without relying on a network request.
+
 ## Kenney "Tiny Dungeon" (kenney/)
 
 - Source: https://kenney.nl/assets/tiny-dungeon
@@ -17,7 +26,7 @@ no semantic file names, only sequential indices):
 | `char_1.png` … `char_5.png` | `tile_0085`, `tile_0086`, `tile_0087`, `tile_0096`, `tile_0099` — five distinct villager/knight sprites, one per agent |
 | `floor_dark.png` / `floor_light.png` | `tile_0000`, `tile_0049` — contrasting floor tiles used to identify the open office, reception, pantry, meeting room, entrance and lounge zones |
 | `wall_trim.png` | `tile_0036` — top-wall/window trim strip |
-| `divider_fence.png` | `tile_0076` — horizontal and 90°-rotated office partitions between zones |
+| `divider_fence.png` | `tile_0076` — retained source tile; the rendered office now uses project-original pixel cubicle partitions instead |
 | `desk_monitor.png` | `tile_0054` — ordered workstation rows plus the reception desk |
 | `table.png` / `stool.png` | `tile_0072`, `tile_0073` — conference, pantry, reception and lounge furniture |
 | `bookshelf.png` | `tile_0063` — reception, pantry and lounge storage |
@@ -37,6 +46,7 @@ rectangles in `apps/web/src/office/OfficeScene.tsx`; they do not use or derive
 from a third-party image asset:
 
 - block-built potted plants and waste bin;
+- solid cubicle partitions with pixel-aligned panels, trim and posts;
 - reception/open-office/pantry/meeting/lounge signs and the AI Office lobby sign;
 - the 3×5 bitmap alphabet used for in-scene labels and task bubbles;
 - square agent state markers, selection frame, and done/error/security badges.

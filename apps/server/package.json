@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "node ../../scripts/dev.mjs server",
-    "start": "tsx src/index.ts",
+    "start": "tsx --env-file-if-exists=.env.local src/index.ts",
     "mock-openai": "tsx src/dev/mock-openai-backend.ts",
     "verify-openai-proxy": "tsx src/dev/verify-openai-proxy.ts",
-    "verify-nvidia-real": "tsx src/dev/verify-nvidia-real.ts"
+    "verify-nvidia-real": "tsx --env-file-if-exists=.env.local src/dev/verify-nvidia-real.ts"
   },
   "dependencies": {
     "@ai-office/core": "*",

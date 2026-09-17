@@ -51,6 +51,7 @@ function goalColor(goalId: string): string {
 const RUNTIME_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
   opencode: "OpenCode",
+  cline: "Cline",
 };
 
 // v0.9: display-only labels for a backendProfile's apiFormat, keyed by the
@@ -243,7 +244,7 @@ export default function App() {
           [msg.goalId]: { ...prev[msg.goalId], status: "failed", reason: msg.reason, authFailure: msg.authFailure },
         }));
         setAnnouncement(
-          `Master planning failed for ${msg.goal}${msg.authFailure ? " (authentication)" : ""}: ${msg.reason}`
+          `Master planning failed for ${msg.goal}${msg.authFailure ? " (subscription login or usage limit)" : ""}: ${msg.reason}`
         );
         return;
       }

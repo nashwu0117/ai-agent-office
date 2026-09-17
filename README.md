@@ -5,6 +5,10 @@ An open-source "AI company" office: instead of a wall of terminals, you see a
 Idle workers wander the Public/Talent Area; once assigned a task they walk to
 a workstation, work, and return when done.
 
+> Coming back to this project after a break? [`QUICKSTART.md`](./QUICKSTART.md)
+> has the start command, what already works with no setup, and exactly which
+> env vars are still missing and where to get them.
+
 ## Status: vertical slice (v0.13)
 
 This is a progressively-built vertical slice, not the full product vision.

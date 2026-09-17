@@ -24,15 +24,18 @@ const WORKSTATIONS = [
   { desk: [12, 2], seat: [12.5, 3] },
   { desk: [6, 5], seat: [6.5, 6] },
   { desk: [9, 5], seat: [9.5, 6] },
+  { desk: [12, 5], seat: [12.5, 6] },
 ] as const;
 
-const SPARE_DESKS = [[12, 5]] as const;
 const PUBLIC_HOMES = [
-  [7.2, 10.3],
-  [8.85, 10.3],
-  [10.5, 10.3],
-  [12.15, 10.3],
-  [13.8, 10.3],
+  // Keep the public lineup inside the clear central walkway. Starting at
+  // 6.5 prevents agent-01 from overlapping the meeting-room chair at x=5.
+  [6.5, 10.3],
+  [8.05, 10.3],
+  [9.6, 10.3],
+  [11.15, 10.3],
+  [12.7, 10.3],
+  [14.25, 10.3],
 ] as const;
 const HORIZONTAL_DIVIDER_ROW = 7;
 const HORIZONTAL_GAPS = new Set([3, 4, 10, 16, 17]);
@@ -337,6 +340,32 @@ function placeRotatedTile(layer: Container, texture: Texture, tx: number, ty: nu
   return sprite;
 }
 
+function drawOfficePartition(tx: number, ty: number, orientation: "horizontal" | "vertical"): Graphics {
+  const partition = new Graphics();
+  const pos = tileToScreen(tx, ty);
+  partition.position.set(pos.x, pos.y);
+
+  if (orientation === "horizontal") {
+    partition.rect(0, 12, SCREEN_TILE, 18).fill({ color: 0x181724 });
+    partition.rect(2, 14, SCREEN_TILE - 4, 12).fill({ color: 0x59627c });
+    partition.rect(2, 14, SCREEN_TILE - 4, 4).fill({ color: 0xb3bad0 });
+    partition.rect(5, 18, SCREEN_TILE - 10, 6).fill({ color: 0x747c96 });
+    partition.rect(0, 10, SCREEN_TILE, 4).fill({ color: 0x202337 });
+    partition.rect(0, 8, 5, 24).fill({ color: 0x181724 });
+    partition.rect(SCREEN_TILE - 5, 8, 5, 24).fill({ color: 0x181724 });
+  } else {
+    partition.rect(12, 0, 18, SCREEN_TILE).fill({ color: 0x181724 });
+    partition.rect(14, 2, 12, SCREEN_TILE - 4).fill({ color: 0x59627c });
+    partition.rect(14, 2, 4, SCREEN_TILE - 4).fill({ color: 0xb3bad0 });
+    partition.rect(18, 5, 6, SCREEN_TILE - 10).fill({ color: 0x747c96 });
+    partition.rect(10, 0, 4, SCREEN_TILE).fill({ color: 0x202337 });
+    partition.rect(8, 0, 24, 5).fill({ color: 0x181724 });
+    partition.rect(8, SCREEN_TILE - 5, 24, 5).fill({ color: 0x181724 });
+  }
+
+  return partition;
+}
+
 function buildFloor(layer: Container, textures: Record<AssetKey, Texture>): void {
   for (let ty = 0; ty < ROWS; ty += 1) {
     for (let tx = 0; tx < COLS; tx += 1) {
@@ -358,13 +387,13 @@ function buildFloor(layer: Container, textures: Record<AssetKey, Texture>): void
 function buildPartitions(layer: Container, textures: Record<AssetKey, Texture>): void {
   for (let tx = 0; tx < COLS; tx += 1) {
     if (HORIZONTAL_GAPS.has(tx)) continue;
-    placeTile(layer, textures.divider_fence, tx, HORIZONTAL_DIVIDER_ROW);
+    layer.addChild(drawOfficePartition(tx, HORIZONTAL_DIVIDER_ROW, "horizontal"));
   }
 
   for (const tx of [4, 15]) {
     for (let ty = 1; ty <= 6; ty += 1) {
       if (VERTICAL_GAP_ROWS.has(ty)) continue;
-      placeRotatedTile(layer, textures.divider_fence, tx, ty);
+      layer.addChild(drawOfficePartition(tx, ty, "vertical"));
     }
   }
 }
@@ -378,13 +407,10 @@ function buildDecor(layer: Container, textures: Record<AssetKey, Texture>): void
   placeTile(layer, textures.stool, 2, 5);
   placeTile(layer, textures.bookshelf, 0, 5);
 
-  // Main office: two disciplined desk rows, with one visible hot desk.
+  // Main office: two complete desk rows, one workstation per registered agent.
   addZoneSign(layer, "OPEN OFFICE", 9.5, 1.25, 0x5fc98f);
   for (const workstation of WORKSTATIONS) {
     placeTile(layer, textures.desk_monitor, workstation.desk[0], workstation.desk[1]);
-  }
-  for (const [tx, ty] of SPARE_DESKS) {
-    placeTile(layer, textures.desk_monitor, tx, ty);
   }
 
   // Pantry / records: refreshment point plus storage along the right wall.
