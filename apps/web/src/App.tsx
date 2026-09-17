@@ -67,6 +67,7 @@ export default function App() {
   const [goalSubmitting, setGoalSubmitting] = useState(false);
   const [goalFormError, setGoalFormError] = useState<string | null>(null);
   const [securityAlertAgents, setSecurityAlertAgents] = useState<Set<string>>(new Set());
+  const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
 
@@ -78,6 +79,9 @@ export default function App() {
       if (msg.type === "snapshot") {
         setAgents(msg.agents);
         setTasksById(Object.fromEntries(msg.tasks.map((t) => [t.id, t])));
+        setAnnouncement(
+          `Office updated. ${msg.agents.length} agent${msg.agents.length === 1 ? "" : "s"} and ${msg.tasks.length} task${msg.tasks.length === 1 ? "" : "s"} loaded.`
+        );
         return;
       }
 
@@ -95,11 +99,15 @@ export default function App() {
               : a
           )
         );
+        setAnnouncement(
+          `${msg.agentId} is now ${msg.state.replaceAll("_", " ")}${msg.taskId ? ` on task ${msg.taskId}` : ""}.`
+        );
         return;
       }
 
       if (msg.type === "task_updated") {
         setTasksById((prev) => ({ ...prev, [msg.task.id]: msg.task }));
+        setAnnouncement(`Task ${msg.task.title} is now ${msg.task.status.replaceAll("_", " ")}.`);
         return;
       }
 
@@ -123,6 +131,7 @@ export default function App() {
           },
           ...prev,
         ]);
+        setAnnouncement(`Task ${msg.taskId} completed by ${msg.agentId}. ${msg.summary}`);
         return;
       }
 
@@ -149,6 +158,9 @@ export default function App() {
             });
           }, 6000);
         }
+        setAnnouncement(
+          `${msg.securityViolation ? "Security failure" : "Task failure"}: ${msg.taskId}, ${msg.reason}`
+        );
         return;
       }
 
@@ -163,6 +175,7 @@ export default function App() {
             createdAt: Date.now(),
           },
         }));
+        setAnnouncement(`Master is planning the goal: ${msg.goal}.`);
         return;
       }
 
@@ -171,6 +184,7 @@ export default function App() {
           ...prev,
           [msg.goalId]: { ...prev[msg.goalId], status: "planned", taskCount: msg.taskCount },
         }));
+        setAnnouncement(`Master planned ${msg.taskCount} subtasks for ${msg.goal}. Dispatching now.`);
         return;
       }
 
@@ -179,6 +193,7 @@ export default function App() {
           ...prev,
           [msg.goalId]: { ...prev[msg.goalId], status: "failed", reason: msg.reason },
         }));
+        setAnnouncement(`Master planning failed for ${msg.goal}: ${msg.reason}`);
         return;
       }
 
@@ -187,6 +202,7 @@ export default function App() {
           ...prev,
           [msg.goalId]: { ...prev[msg.goalId], status: "summarized", summary: msg.summary },
         }));
+        setAnnouncement(`Master summary ready for ${msg.goal}: ${msg.summary}`);
       }
     });
 
@@ -258,12 +274,18 @@ export default function App() {
 
   return (
     <div className="app">
+      <a className="skip-link" href="#main-content">
+        Skip to task controls
+      </a>
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
       <header className="app-header">
         <h1>AI Office — Vertical Slice</h1>
       </header>
 
       <div className="app-body">
-        <div className="main-column">
+        <main id="main-content" className="main-column" tabIndex={-1}>
           <OfficeScene
             agents={agents}
             progressByAgent={progressByAgent}
@@ -272,34 +294,52 @@ export default function App() {
             securityAlertAgentIds={securityAlertAgents}
           />
 
-          <form className="task-form goal-form" onSubmit={handleGoalSubmit}>
-            <div className="form-heading">High-level goal (Master plans it for you)</div>
+          <form className="task-form goal-form" onSubmit={handleGoalSubmit} aria-labelledby="goal-form-heading">
+            <h2 id="goal-form-heading" className="form-heading">
+              High-level goal (Master plans it for you)
+            </h2>
+            <label className="sr-only" htmlFor="goal-description">
+              High-level goal
+            </label>
             <textarea
+              id="goal-description"
               placeholder="e.g. Add an install section to README.md, and add a simple string-utils test in utils/"
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
+              aria-invalid={Boolean(goalFormError)}
+              aria-describedby={goalFormError ? "goal-form-error" : undefined}
               rows={2}
               required
             />
+            <label className="sr-only" htmlFor="goal-workspace-path">
+              Goal workspace folder path
+            </label>
             <input
+              id="goal-workspace-path"
               type="text"
               placeholder="Local folder path (shared by every subtask), e.g. /home/you/some-project"
               value={goalWorkspacePath}
               onChange={(e) => setGoalWorkspacePath(e.target.value)}
+              aria-invalid={Boolean(goalFormError)}
+              aria-describedby={goalFormError ? "goal-form-error" : undefined}
               required
             />
             <button type="submit" disabled={goalSubmitting}>
               {goalSubmitting ? "Sending to Master…" : "Ask Master to plan & dispatch"}
             </button>
-            {goalFormError && <div className="form-error">{goalFormError}</div>}
+            {goalFormError && (
+              <div id="goal-form-error" className="form-error" role="alert">
+                {goalFormError}
+              </div>
+            )}
           </form>
 
           {goalsSorted.length > 0 && (
-            <div className="goal-panel">
+            <section className="goal-panel" aria-label="Master planning status">
               {goalsSorted.map((g) => (
-                <div key={g.goalId} className="goal-card" style={{ borderLeftColor: goalColor(g.goalId) }}>
+                <article key={g.goalId} className="goal-card" style={{ borderLeftColor: goalColor(g.goalId) }}>
                   <div className="goal-card-header">
-                    <span className="goal-card-dot" style={{ background: goalColor(g.goalId) }} />
+                    <span className="goal-card-dot" style={{ background: goalColor(g.goalId) }} aria-hidden="true" />
                     <strong>{g.goal}</strong>
                   </div>
                   {g.status === "planning" && <div className="goal-card-status">Master is planning…</div>}
@@ -308,31 +348,49 @@ export default function App() {
                       Planned {g.taskCount} subtask{g.taskCount === 1 ? "" : "s"} — dispatching…
                     </div>
                   )}
-                  {g.status === "failed" && <div className="goal-card-status goal-card-status-fail">Master planning failed: {g.reason}</div>}
+                  {g.status === "failed" && (
+                    <div className="goal-card-status goal-card-status-fail">
+                      <span aria-hidden="true">⚠ </span>Master planning failed: {g.reason}
+                    </div>
+                  )}
                   {g.status === "summarized" && <div className="goal-card-summary">{g.summary}</div>}
-                </div>
+                </article>
               ))}
-            </div>
+            </section>
           )}
 
-          <form className="task-form" onSubmit={handleSubmit}>
-            <div className="form-heading">Manual task (pick capabilities yourself)</div>
+          <form className="task-form" onSubmit={handleSubmit} aria-labelledby="task-form-heading">
+            <h2 id="task-form-heading" className="form-heading">
+              Manual task (pick capabilities yourself)
+            </h2>
+            <label className="sr-only" htmlFor="task-description">
+              Manual task description
+            </label>
             <textarea
+              id="task-description"
               placeholder="Task description, e.g. Add a project intro section to README.md"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              aria-invalid={Boolean(formError)}
+              aria-describedby={formError ? "task-form-error" : undefined}
               rows={3}
               required
             />
+            <label className="sr-only" htmlFor="task-workspace-path">
+              Task workspace folder path
+            </label>
             <input
+              id="task-workspace-path"
               type="text"
               placeholder="Local folder path, e.g. /home/you/some-project"
               value={workspacePath}
               onChange={(e) => setWorkspacePath(e.target.value)}
+              aria-invalid={Boolean(formError)}
+              aria-describedby={formError ? "task-form-error" : undefined}
               required
             />
-            <div className="capability-picker">
-              <span className="capability-picker-label">Required capabilities:</span>
+            <fieldset className="capability-picker">
+              <legend className="capability-picker-label">Required capabilities:</legend>
               {KNOWN_CAPABILITIES.map((cap) => (
                 <label key={cap} className="capability-checkbox">
                   <input
@@ -343,37 +401,49 @@ export default function App() {
                   {cap}
                 </label>
               ))}
-            </div>
+            </fieldset>
             <button type="submit" disabled={submitting}>
               {submitting ? "Dispatching…" : "Dispatch task"}
             </button>
-            {formError && <div className="form-error">{formError}</div>}
+            {formError && (
+              <div id="task-form-error" className="form-error" role="alert">
+                {formError}
+              </div>
+            )}
           </form>
 
-          <div className="completions">
+          <section className="completions" aria-labelledby="completion-heading">
+            <h2 id="completion-heading" className="sr-only">
+              Task results
+            </h2>
             {completions.map((c) => {
               const goalId = tasksById[c.taskId]?.goalId;
               return (
-                <div
+                <article
                   key={c.key}
                   className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : "fail"}`}
                 >
-                  {goalId && <span className="goal-card-dot" style={{ background: goalColor(goalId) }} />}
+                  {goalId && (
+                    <span className="goal-card-dot" style={{ background: goalColor(goalId) }} aria-hidden="true" />
+                  )}
+                  <span className="status-icon" aria-hidden="true">
+                    {c.ok ? "✓" : c.securityViolation ? "⚠" : "✕"}
+                  </span>{" "}
                   <strong>
-                    {c.ok ? "Task completed" : c.securityViolation ? "! Workspace isolation violation" : "Task failed"}
+                    {c.ok ? "Task completed" : c.securityViolation ? "Security failure: workspace isolation violation" : "Task failed"}
                   </strong>
                   <div>{c.summary}</div>
                   <div className="completion-meta">
                     agent: {c.agentId}
                     {c.filesChanged.length > 0 && <> · files: {c.filesChanged.join(", ")}</>}
                   </div>
-                </div>
+                </article>
               );
             })}
-          </div>
-        </div>
+          </section>
+        </main>
 
-        <aside className={`detail-panel ${selectedAgent ? "open" : ""}`}>
+        <aside className={`detail-panel ${selectedAgent ? "open" : ""}`} aria-label="Agent details">
           {selectedAgent && (
             <>
               <h2>{selectedAgent.id}</h2>
@@ -405,39 +475,44 @@ export default function App() {
           )}
         </aside>
 
-        <aside className="queue-panel">
-          <h2>Queue ({queueItems.length})</h2>
+        <aside className="queue-panel" aria-labelledby="queue-heading">
+          <h2 id="queue-heading">Queue ({queueItems.length})</h2>
           {queueItems.length === 0 && <div className="queue-empty">No tasks waiting for an agent.</div>}
-          {queueItems.map((task) => {
-            const depTitles = (task.dependsOn ?? []).map((id) => tasksById[id]?.title ?? id);
-            return (
-              <div
-                key={task.id}
-                className={`queue-item queue-item-${task.status}`}
-                style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
-              >
-                <div className="queue-item-title">{task.title}</div>
-                <div className="queue-item-meta">
-                  needs: {task.requiredCapabilities.length > 0 ? task.requiredCapabilities.join(", ") : "any"}
-                </div>
-                {task.status === "pending" && (
-                  <div className="queue-item-meta">
-                    waiting {Math.max(0, Math.round((now - new Date(task.createdAt).getTime()) / 1000))}s
-                  </div>
-                )}
-                {task.status === "blocked" && (
-                  <div className="queue-item-meta queue-item-tag-blocked">
-                    ⏸ queued — waiting on: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
-                  </div>
-                )}
-                {task.status === "blocked_failed_dependency" && (
-                  <div className="queue-item-meta queue-item-tag-blocked-failed">
-                    ✕ won't run — dependency failed: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {queueItems.length > 0 && (
+            <ol className="queue-list">
+              {queueItems.map((task) => {
+                const depTitles = (task.dependsOn ?? []).map((id) => tasksById[id]?.title ?? id);
+                return (
+                  <li
+                    key={task.id}
+                    className={`queue-item queue-item-${task.status}`}
+                    style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
+                  >
+                    <div className="queue-item-title">{task.title}</div>
+                    <div className="queue-item-meta">
+                      needs: {task.requiredCapabilities.length > 0 ? task.requiredCapabilities.join(", ") : "any"}
+                    </div>
+                    {task.status === "pending" && (
+                      <div className="queue-item-meta">
+                        <strong>⌛ Pending</strong> — waiting{" "}
+                        {Math.max(0, Math.round((now - new Date(task.createdAt).getTime()) / 1000))}s
+                      </div>
+                    )}
+                    {task.status === "blocked" && (
+                      <div className="queue-item-meta queue-item-tag-blocked">
+                        <strong>⏸ Blocked</strong> — waiting on: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
+                      </div>
+                    )}
+                    {task.status === "blocked_failed_dependency" && (
+                      <div className="queue-item-meta queue-item-tag-blocked-failed">
+                        <strong>✕ Blocked — dependency failed</strong>: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </aside>
       </div>
     </div>
