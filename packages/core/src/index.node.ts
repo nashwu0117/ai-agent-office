@@ -4,3 +4,6 @@
 // (server-side only) import this subpath instead.
 export * from "./runtime/process-handle.js";
 export * from "./runtime/git-repo-guard.js";
+export * from "./credentials/sources.js";
+export * from "./credentials/router.js";
+export * from "./credentials/factory.js";

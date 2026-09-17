@@ -1,5 +1,6 @@
 export * from "./agent/types.js";
 export * from "./task/types.js";
+export * from "./credentials/types.js";
 export * from "./runtime/adapter.js";
 export * from "./runtime/json-lines.js";
 export * from "./runtime/workspace-guard.js";
