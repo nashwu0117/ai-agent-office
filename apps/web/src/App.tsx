@@ -1,21 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Agent, CredentialSourceStatus, Task } from "@ai-office/core";
+import type { Agent, BackendProfileClientInfo, CredentialSourceStatus, Task } from "@ai-office/core";
 import { KNOWN_CAPABILITIES } from "@ai-office/core";
 import { OfficeClient, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
+import { BackendProfilesPanel } from "./BackendProfilesPanel.js";
+import "./backend-profiles-panel.css";
 
 interface LogLine {
   message: string;
   timestamp: number;
-}
-
-// v0.9: mirrors this server's own BACKEND_PROFILES registry
-// (apps/server/src/index.ts), sent once in the WS "snapshot" message — no
-// secret/URL data ever reaches the client, just id/label/apiFormat.
-interface BackendProfileInfo {
-  id: string;
-  label: string;
-  apiFormat: string;
 }
 
 interface CompletionCard {
@@ -88,7 +81,8 @@ export default function App() {
   const [goalFormError, setGoalFormError] = useState<string | null>(null);
   const [securityAlertAgents, setSecurityAlertAgents] = useState<Set<string>>(new Set());
   const [credentialStatuses, setCredentialStatuses] = useState<CredentialSourceStatus[]>([]);
-  const [backendProfiles, setBackendProfiles] = useState<BackendProfileInfo[]>([]);
+  const [backendProfiles, setBackendProfiles] = useState<BackendProfileClientInfo[]>([]);
+  const [backendPanelOpen, setBackendPanelOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
@@ -113,6 +107,20 @@ export default function App() {
         setCredentialStatuses(msg.sources);
         const available = msg.sources.filter((source) => source.available).length;
         setAnnouncement(`Credential status updated. ${available} of ${msg.sources.length} available.`);
+        return;
+      }
+
+      if (msg.type === "backend_profiles_changed") {
+        setBackendProfiles(msg.profiles);
+        setAnnouncement(`Backend profiles updated. ${msg.profiles.length} profile${msg.profiles.length === 1 ? "" : "s"} registered.`);
+        return;
+      }
+
+      if (msg.type === "agent_backend_profile_changed") {
+        setAgents((prev) =>
+          prev.map((a) => (a.id === msg.agentId ? { ...a, backendProfile: msg.backendProfile } : a))
+        );
+        setAnnouncement(`${msg.agentId} reassigned to backend profile: ${msg.backendProfile ?? "official"}.`);
         return;
       }
 
@@ -322,6 +330,9 @@ export default function App() {
       </div>
       <header className="app-header">
         <h1>AI Office — Vertical Slice</h1>
+        <button type="button" className="bp-open-button" onClick={() => setBackendPanelOpen(true)}>
+          Backend &amp; Credentials
+        </button>
         {credentialStatuses.length > 0 && (
           <div
             className={`credential-pill ${availableCredentialCount === 0 ? "credential-pill-none" : ""}`}
@@ -593,6 +604,14 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      <BackendProfilesPanel
+        open={backendPanelOpen}
+        onClose={() => setBackendPanelOpen(false)}
+        credentialStatuses={credentialStatuses}
+        backendProfiles={backendProfiles}
+        agents={agents}
+      />
     </div>
   );
 }

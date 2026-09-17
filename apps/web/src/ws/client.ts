@@ -1,4 +1,4 @@
-import type { Agent, CredentialSourceStatus, OfficeEvent, Task } from "@ai-office/core";
+import type { Agent, BackendProfileClientInfo, CredentialSourceStatus, OfficeEvent, Task } from "@ai-office/core";
 
 export type ServerMessage =
   | OfficeEvent
@@ -7,8 +7,8 @@ export type ServerMessage =
       agents: Agent[];
       tasks: Task[];
       credentials: CredentialSourceStatus[];
-      /** v0.9: id/label/apiFormat for every registered BackendProfile — never secret values. See apps/server/src/index.ts BACKEND_PROFILES. */
-      backendProfiles?: Array<{ id: string; label: string; apiFormat: string }>;
+      /** v0.10: id/label/apiFormat/env-var-names/available for every registered BackendProfile — never secret values. See apps/server/src/backend-profile-store.ts. */
+      backendProfiles?: BackendProfileClientInfo[];
     };
 
 type Listener = (msg: ServerMessage) => void;
@@ -104,4 +104,37 @@ export async function submitGoal(input: { goal: string; workspacePath: string })
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `request failed with status ${res.status}`);
   }
+}
+
+export interface BackendProfileInput {
+  id: string;
+  label: string;
+  apiFormat: string;
+  baseUrlEnvVar: string;
+  authTokenEnvVar: string;
+}
+
+async function jsonRequest(url: string, method: string, body: unknown): Promise<void> {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const responseBody = await res.json().catch(() => ({}));
+    throw new Error(responseBody.error ?? `request failed with status ${res.status}`);
+  }
+}
+
+/** v0.10: management-UI writes — see BackendProfilesPanel.tsx. Reads come from the WS snapshot/backend_profiles_changed events instead of polling. */
+export function createBackendProfile(input: BackendProfileInput): Promise<void> {
+  return jsonRequest("/api/backend-profiles", "POST", input);
+}
+
+export function updateBackendProfile(id: string, patch: Partial<Omit<BackendProfileInput, "id">>): Promise<void> {
+  return jsonRequest(`/api/backend-profiles/${encodeURIComponent(id)}`, "PUT", patch);
+}
+
+export function setAgentBackendProfile(agentId: string, backendProfile: string | null): Promise<void> {
+  return jsonRequest(`/api/agents/${encodeURIComponent(agentId)}/backend-profile`, "PUT", { backendProfile });
 }

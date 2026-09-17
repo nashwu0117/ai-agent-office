@@ -133,6 +133,25 @@ export class Orchestrator {
     return this.agents.get(agentId);
   }
 
+  /**
+   * v0.10: repoints an already-registered agent at a different backend
+   * profile (or back to "official" via undefined) from the management UI,
+   * with no server restart — the next task dispatched to this agent reads
+   * agent.backendProfile fresh (see runTask -> adapter.start ->
+   * resolveBackendEnv), so this takes effect starting with that next
+   * dispatch. Does not touch a task this agent is already running.
+   */
+  setAgentBackendProfile(agentId: string, backendProfile: string | undefined): Agent {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      throw new Error(`Unknown agent "${agentId}"`);
+    }
+    agent.backendProfile = backendProfile;
+    agent.updatedAt = this.now();
+    this.broadcast({ type: "agent_backend_profile_changed", agentId, backendProfile });
+    return agent;
+  }
+
   listTasks(): Task[] {
     return [...this.tasks.values()];
   }

@@ -8,3 +8,7 @@ dist/
 .omo/
 artifacts/
 .ai-office-dev/
+# v0.10: this operator's own backend-profile/agent-assignment state
+# (env var *names* only, never secret values — see apps/server/src/backend-profile-store.ts),
+# not something to check into source control.
+apps/server/data/*.json

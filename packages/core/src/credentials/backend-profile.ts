@@ -40,6 +40,24 @@ export interface BackendProfile {
 export type BackendProfileRegistry = Record<string, BackendProfile>;
 
 /**
+ * v0.10: the shape of a BackendProfile the server ever sends to the browser
+ * — id/label/apiFormat/env-var-*names* for the management UI (packages
+ * apps/web/src/BackendProfilesPanel.tsx) plus a computed `available` flag.
+ * Never the env vars' actual values: this is exactly the boundary
+ * BackendProfile's own field comments describe ("Never the value itself"),
+ * just reused for the read side instead of resolveBackendEnv's write side.
+ */
+export interface BackendProfileClientInfo {
+  id: string;
+  label: string;
+  apiFormat: BackendProfile["apiFormat"];
+  baseUrlEnvVar: string;
+  authTokenEnvVar: string;
+  /** Whether both baseUrlEnvVar and authTokenEnvVar are currently set (non-empty) on this server's process — never proves the values are valid credentials, only present. */
+  available: boolean;
+}
+
+/**
  * Thrown by resolveBackendEnv (backend-resolver.ts) when an agent's
  * backendProfile can't be cleanly resolved — unregistered id, or a
  * registered profile missing its required env var(s). Deliberately a

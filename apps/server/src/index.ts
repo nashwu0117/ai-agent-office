@@ -15,6 +15,8 @@ import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 import { startFormatTranslationProxy } from "./proxy-server.js";
+import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
+import { BackendProfileStore, BackendProfileValidationError } from "./backend-profile-store.js";
 
 const DEFAULT_SERVER_PORT = 43117;
 const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -32,6 +34,13 @@ const PROXY_PORT = Number(process.env.AI_OFFICE_PROXY_PORT ?? DEFAULT_PROXY_PORT
 // which is apps/server, not the repo root).
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
+// v0.10: this server's local, single-operator persisted state — backend
+// profile definitions and per-agent profile assignments added/edited
+// through the management UI (BackendProfileStore / AgentBackendAssignmentStore
+// below). Deliberately plain JSON files, not a database: see the v0.10 build
+// prompt's explicit "not an enterprise config management system" scope note.
+const DATA_DIR = fileURLToPath(new URL("../data/", import.meta.url));
+
 // v0.8: per-agent API backend for claude-code agents, resolved to per-process
 // env overrides by ClaudeCodeAdapter (packages/adapters/claude-code) via
 // resolveBackendEnv — never through cc-switch itself; see
@@ -41,7 +50,13 @@ const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 // server's own process env (the two var names below), set by the operator —
 // never hardcoded in source, never read from cc-switch's local store at
 // runtime.
-const BACKEND_PROFILES: BackendProfileRegistry = {
+//
+// v0.10: this is now only the first-run *seed* for BackendProfileStore
+// below, not the live registry — once apps/server/data/backend-profiles.json
+// exists (created on first startup, or as soon as the management UI adds or
+// edits a profile), that file is authoritative and this constant is never
+// consulted again. Renamed from BACKEND_PROFILES to make that explicit.
+const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
   nvidia: {
     id: "nvidia",
     label: "NVIDIA API",
@@ -75,6 +90,11 @@ const BACKEND_PROFILES: BackendProfileRegistry = {
 // as the mixed-backend demo (v0.8): same runtime as agent-01/03, routed
 // through a different API backend so it doesn't spend the official
 // Anthropic quota those two use.
+//
+// v0.10: each entry's backendProfile is only the *default* now — the
+// management UI's per-agent reassignment (PUT /api/agents/:id/backend-profile)
+// persists an override in AgentBackendAssignmentStore that takes priority;
+// see the `resolve()` calls below where agents are actually registered.
 const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: string; backendProfile?: string }> = {
   "agent-01": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
   "agent-02": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia" },
@@ -118,16 +138,24 @@ const credentialRouter = createDefaultCredentialRouter((statuses) => {
   broadcast({ type: "credential_status_changed", sources: statuses });
 });
 
+// v0.10: persisted backend-profile definitions and per-agent overrides —
+// see backend-profile-store.ts and agent-backend-assignments.ts. Constructed
+// before the proxy/orchestrator below so both are handed
+// backendProfileStore.registry itself (not a copy), and agents are
+// registered with their resolved (persisted-override-or-default) profile.
+const backendProfileStore = new BackendProfileStore(DEFAULT_BACKEND_PROFILES, `${DATA_DIR}backend-profiles.json`);
+const agentAssignments = new AgentBackendAssignmentStore(`${DATA_DIR}agent-backend-assignments.json`);
+
 // v0.9: started before any adapter so ClaudeCodeAdapter always has a real
 // proxy port to point backendProfile-routed agents at. Only agents with a
 // backendProfile set ever talk to it — an "official" agent's ANTHROPIC_BASE_URL
 // is unchanged from v0.7/v0.8, see ClaudeCodeAdapter's constructor comment.
-const proxy = await startFormatTranslationProxy(BACKEND_PROFILES, PROXY_PORT);
+const proxy = await startFormatTranslationProxy(backendProfileStore.registry, PROXY_PORT);
 const proxyBaseUrl = `http://127.0.0.1:${proxy.port}`;
 
 const orchestrator = new Orchestrator({
   adapters: {
-    "claude-code": new ClaudeCodeAdapter(credentialRouter, BACKEND_PROFILES, proxyBaseUrl),
+    "claude-code": new ClaudeCodeAdapter(credentialRouter, backendProfileStore.registry, proxyBaseUrl),
     opencode: new OpenCodeAdapter(credentialRouter),
   },
   workspaceGuard: new GitRepoGuard(REPO_ROOT),
@@ -158,16 +186,9 @@ function makeAgent(id: string, runtime: string, eligibleCapabilities: string[], 
 }
 
 for (const [id, { runtime, eligibleCapabilities, backendProfile }] of Object.entries(AGENT_ROSTER)) {
-  orchestrator.registerAgent(makeAgent(id, runtime, eligibleCapabilities, backendProfile));
+  const resolvedBackendProfile = agentAssignments.resolve(id, backendProfile);
+  orchestrator.registerAgent(makeAgent(id, runtime, eligibleCapabilities, resolvedBackendProfile));
 }
-
-// v0.9: id/label/apiFormat only, never baseUrlEnvVar/authTokenEnvVar names
-// or values — this is the payload the Agent detail panel reads (App.tsx).
-const backendProfilesForClient = Object.values(BACKEND_PROFILES).map((p) => ({
-  id: p.id,
-  label: p.label,
-  apiFormat: p.apiFormat,
-}));
 
 wss.on("connection", (socket) => {
   clients.add(socket);
@@ -177,7 +198,11 @@ wss.on("connection", (socket) => {
       agents: orchestrator.listAgents(),
       tasks: orchestrator.listTasks(),
       credentials: credentialRouter.listStatuses(),
-      backendProfiles: backendProfilesForClient,
+      // v0.10: full management-UI-ready info (id/label/apiFormat/env var
+      // *names*/available) — computed fresh per connection since env-var
+      // availability and the registry itself can both change at runtime.
+      // Never baseUrlEnvVar/authTokenEnvVar *values*.
+      backendProfiles: backendProfileStore.list(),
     })
   );
   socket.on("close", () => clients.delete(socket));
@@ -250,6 +275,88 @@ app.post("/api/goals", (req, res) => {
   res.status(202).json({ goalId });
 });
 
+// v0.10: Credential/Backend Profile management UI — see
+// apps/web/src/BackendProfilesPanel.tsx. Every response here is
+// BackendProfileClientInfo shaped: id/label/apiFormat/env-var-*names*/
+// available, never an env var's actual value.
+app.get("/api/backend-profiles", (_req, res) => {
+  res.json(backendProfileStore.list());
+});
+
+app.post("/api/backend-profiles", (req, res) => {
+  const { id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = req.body ?? {};
+  if (
+    typeof id !== "string" ||
+    typeof label !== "string" ||
+    typeof apiFormat !== "string" ||
+    typeof baseUrlEnvVar !== "string" ||
+    typeof authTokenEnvVar !== "string"
+  ) {
+    res.status(400).json({ error: "id, label, apiFormat, baseUrlEnvVar, and authTokenEnvVar (all strings) are required" });
+    return;
+  }
+  try {
+    backendProfileStore.create({ id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar });
+    broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
+    res.status(201).json(backendProfileStore.list().find((p) => p.id === id));
+  } catch (err) {
+    if (err instanceof BackendProfileValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+});
+
+app.put("/api/backend-profiles/:id", (req, res) => {
+  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = req.body ?? {};
+  try {
+    backendProfileStore.update(req.params.id, { label, apiFormat, baseUrlEnvVar, authTokenEnvVar });
+    broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
+    res.json(backendProfileStore.list().find((p) => p.id === req.params.id));
+  } catch (err) {
+    if (err instanceof BackendProfileValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+});
+
+// v0.10: repoints an already-registered agent at a different backend
+// profile (or "official"/null to clear it), persisted so it survives a
+// restart — see agent-backend-assignments.ts. Takes effect starting with
+// that agent's next dispatched task, no restart required (see
+// Orchestrator.setAgentBackendProfile).
+app.put("/api/agents/:id/backend-profile", (req, res) => {
+  const agent = orchestrator.getAgent(req.params.id);
+  if (!agent) {
+    res.status(404).json({ error: `Unknown agent "${req.params.id}"` });
+    return;
+  }
+  if (agent.runtime !== "claude-code") {
+    res.status(400).json({
+      error: `Agent "${agent.id}" runs on "${agent.runtime}", which never reads backendProfile — only claude-code agents can be reassigned.`,
+    });
+    return;
+  }
+
+  const raw = req.body?.backendProfile;
+  if (raw !== null && raw !== undefined && typeof raw !== "string") {
+    res.status(400).json({ error: "backendProfile must be a string profile id, or null/undefined for official" });
+    return;
+  }
+  const backendProfile = raw === null || raw === undefined || raw === "official" ? undefined : raw;
+  if (backendProfile !== undefined && !backendProfileStore.registry[backendProfile]) {
+    res.status(400).json({ error: `Unknown backend profile "${backendProfile}"` });
+    return;
+  }
+
+  orchestrator.setAgentBackendProfile(agent.id, backendProfile);
+  agentAssignments.set(agent.id, backendProfile);
+  res.json(orchestrator.getAgent(agent.id));
+});
+
 httpServer.listen(PORT, () => {
   console.log(`[ai-office] server listening on http://localhost:${PORT}`);
   // v0.7: surfaced at startup instead of only discovered when a live call
@@ -273,13 +380,21 @@ httpServer.listen(PORT, () => {
   // will still register and appear "available", but every task dispatched
   // to them fails fast with backendProfileError instead of silently using
   // the official credential — see BackendProfileError.
-  const usedProfiles = new Set(Object.values(AGENT_ROSTER).map((a) => a.backendProfile).filter((p): p is string => Boolean(p)));
+  //
+  // v0.10: reads resolved agent state (roster default + any persisted
+  // management-UI override), not the AGENT_ROSTER constant directly.
+  const usedProfiles = new Set(
+    orchestrator
+      .listAgents()
+      .map((a) => a.backendProfile)
+      .filter((p): p is string => Boolean(p))
+  );
   if (usedProfiles.size > 0) {
     console.log("[ai-office] backend profiles in use:");
     for (const id of usedProfiles) {
-      const profile = BACKEND_PROFILES[id];
+      const profile = backendProfileStore.registry[id];
       if (!profile) {
-        console.warn(`  - "${id}": not registered in BACKEND_PROFILES — every agent using it will fail fast.`);
+        console.warn(`  - "${id}": not registered in backend-profiles.json — every agent using it will fail fast.`);
         continue;
       }
       const ready = Boolean(process.env[profile.baseUrlEnvVar]) && Boolean(process.env[profile.authTokenEnvVar]);
@@ -288,4 +403,7 @@ httpServer.listen(PORT, () => {
       );
     }
   }
+  console.log(
+    `[ai-office] backend profile / agent-assignment data persisted under ${DATA_DIR} — edit via the "Backend & Credentials" panel in the web UI, not by hand.`
+  );
 });

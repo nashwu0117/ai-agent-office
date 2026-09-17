@@ -1,4 +1,5 @@
 import type { AgentState } from "../agent/types.js";
+import type { BackendProfileClientInfo } from "../credentials/backend-profile.js";
 import type { CredentialSourceStatus } from "../credentials/types.js";
 import type { Task } from "../task/types.js";
 
@@ -40,4 +41,8 @@ export type OfficeEvent =
     }
   | { type: "goal_summary"; goalId: string; goal: string; summary: string }
   /** Pushed whenever the server's CredentialRouter marks a source failed, so the UI's status pill stays live without polling. */
-  | { type: "credential_status_changed"; sources: CredentialSourceStatus[] };
+  | { type: "credential_status_changed"; sources: CredentialSourceStatus[] }
+  /** v0.10: pushed whenever a backend profile is added or edited through the management UI (POST/PUT /api/backend-profiles), so every connected client's profile list stays live without a reload. */
+  | { type: "backend_profiles_changed"; profiles: BackendProfileClientInfo[] }
+  /** v0.10: pushed whenever an agent is repointed at a different backend profile through the management UI (PUT /api/agents/:id/backend-profile). Takes effect on that agent's *next* dispatched task — see Orchestrator.setAgentBackendProfile. */
+  | { type: "agent_backend_profile_changed"; agentId: string; backendProfile?: string };
