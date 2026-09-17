@@ -5,15 +5,25 @@ An open-source "AI company" office: instead of a wall of terminals, you see a
 Idle workers wander the Public/Talent Area; once assigned a task they walk to
 a workstation, work, and return when done.
 
-## Status: vertical slice (v0.10.1)
+## Status: vertical slice (v0.13)
 
 This is a progressively-built vertical slice, not the full product vision.
 So far:
 
-- 5 agents, backed by **two different real CLI backends** — Claude Code and
-  OpenCode — dispatched through a shared `RuntimeAdapter` interface
-  (`packages/core/src/runtime/adapter.ts`). Adding a third CLI means
-  implementing that interface, not touching the Orchestrator or the UI.
+- 14 agents, backed by **three different real CLI backends** — Claude Code,
+  OpenCode, and Cline — dispatched through a shared `RuntimeAdapter`
+  interface (`packages/core/src/runtime/adapter.ts`). Adding a new CLI means
+  implementing that interface, not touching the Orchestrator or the UI. (A
+  fourth candidate, Freebuff, was researched and found to have no headless
+  or API surface at all as of v0.13 — see
+  [`docs/runtime-research-v0.13.md`](./docs/runtime-research-v0.13.md).)
+- Nine of the Claude Code agents are routed through independent third-party
+  API backends instead of the operator's own official Anthropic subscription
+  (NVIDIA NIM ×3, b.ai ×3, platform.experientiallabs.ai ×1, plus the two
+  earlier `nvidia`/`mock-openai` demo profiles) via the `BackendProfile`
+  mechanism below — see
+  [`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md) for
+  exactly which environment variables to set for each one.
 - Multiple tasks dispatch and run **concurrently** across different agents;
   a simple workspace lock stops two agents from ever running a CLI against
   the same directory at the same time.
@@ -84,6 +94,31 @@ override it per-agent by setting `agent.model` where agents are constructed
 in `apps/server/src/index.ts`, or pass a different `provider/model` string
 — run `opencode models` to see what's available to your account.
 
+### Setting up Cline
+
+`packages/adapters/cline` (used by `agent-07`, `runtime: "cline"`) spawns
+the real `cline` CLI (npm package `cline`, v3.0.62 at time of writing) in
+its headless `--json` mode. Two ways to authenticate, same shape as
+`ANTHROPIC_API_KEY` for Claude Code:
+
+```bash
+export CLINE_API_KEY=...   # Cline's own hosted "cline" provider — has free-tagged models
+```
+
+or run `cline auth` interactively once to log in / configure a BYOK
+provider; the adapter falls back to that cached session if `CLINE_API_KEY`
+isn't set, same "CLI manages its own login independently" story as
+OpenCode. Defaults to `cline-free/deepseek-v4.1-flash` ("DeepSeek V4.1
+Flash (free)"), a genuinely free-tagged model confirmed live against the
+installed CLI — see `packages/adapters/cline/src/index.ts` and
+[`docs/runtime-research-v0.13.md`](./docs/runtime-research-v0.13.md) for
+how that was verified (including the real NDJSON event shapes this CLI
+version emits, which differ from its own published docs). Free models are
+capped on a daily quota that resets at a fixed time each day; a capped-out
+run fails cleanly (`INFERENCE_CAP_ERROR`) instead of hanging. Override the
+model with `agent.model` for a different free-tagged model or a BYOK
+provider/model.
+
 ### Setting up the Master
 
 `packages/adapters/master-anthropic` runs Claude Code in headless print mode:
@@ -144,9 +179,12 @@ npm run dev:web
 
 ## Using it
 
-1. Open the web UI — you should see 5 agents wandering the Public/Talent
-   Area. Agents `agent-01`..`03` run on Claude Code, `agent-04`/`05` run on
-   OpenCode (click an agent to see its `Runtime` in the detail panel).
+1. Open the web UI — you should see 14 agents wandering the Public/Talent
+   Area. `agent-01`..`03`, `08`..`14` run on Claude Code (several of those
+   routed through a third-party backend profile — see the "Backend &
+   Credentials" panel), `agent-04`/`05` run on OpenCode, `agent-06` runs on
+   Claude Code through the dev/test mock-openai profile, and `agent-07`
+   runs on Cline (click an agent to see its `Runtime` in the detail panel).
 2. Fill in a task description, a real local folder path, and optionally
    check which capabilities the task needs (`backend`/`frontend`/`testing`/
    `docs`), then dispatch it. You can dispatch several tasks back to back —
@@ -184,6 +222,7 @@ packages/core                    shared types, event schema, Orchestrator (dispa
                                   (packages/core/src/credentials)
 packages/adapters/claude-code    Claude Code CLI adapter (implements RuntimeAdapter)
 packages/adapters/opencode       OpenCode CLI adapter (implements RuntimeAdapter)
+packages/adapters/cline          Cline CLI adapter (implements RuntimeAdapter)
 packages/adapters/master-anthropic  Claude Code CLI headless MasterBrain (implements MasterBrain)
 apps/server                      WebSocket + REST server; registers the agent roster
                                   (id -> runtime -> eligibleCapabilities), the

@@ -13,10 +13,12 @@ import {
 import { GitRepoGuard, createDefaultCredentialRouter } from "@ai-office/core/node";
 import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
+import { ClineAdapter } from "@ai-office/adapter-cline";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 import { startFormatTranslationProxy } from "./proxy-server.js";
 import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
 import { BackendProfileStore, BackendProfileValidationError } from "./backend-profile-store.js";
+import { DefaultBackendStore } from "./default-backend-store.js";
 
 const DEFAULT_SERVER_PORT = 43117;
 const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -80,6 +82,78 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
     authTokenEnvVar: "AI_OFFICE_BACKEND_MOCK_OPENAI_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
   },
+
+  // v0.13: three independent NVIDIA NIM backends (each its own API key, so
+  // usage/quota is tracked separately per agent). Same apiFormat as the
+  // hand-added "nvidia-real" profile in backend-profiles.json — see
+  // docs/runtime-research-v0.13.md for why NVIDIA NIM speaks
+  // openai-chat-completions, not Anthropic's own format, and needs
+  // modelOverrideEnvVar (v0.11) for the same reason "nvidia-real" does.
+  // See docs/backend-profiles-v0.13.md for exactly which env vars to set.
+  "nvidia-1": {
+    id: "nvidia-1",
+    label: "NVIDIA API #1",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN",
+    apiFormat: "openai-chat-completions",
+    modelOverrideEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_MODEL",
+  },
+  "nvidia-2": {
+    id: "nvidia-2",
+    label: "NVIDIA API #2",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN",
+    apiFormat: "openai-chat-completions",
+    modelOverrideEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_MODEL",
+  },
+  "nvidia-3": {
+    id: "nvidia-3",
+    label: "NVIDIA API #3",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN",
+    apiFormat: "openai-chat-completions",
+    modelOverrideEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_MODEL",
+  },
+
+  // v0.13: three independent b.ai backends. b.ai's Messages endpoint
+  // (docs.b.ai/llmservice/api) is the real Anthropic Messages protocol —
+  // see docs/runtime-research-v0.13.md — so these are byte-passthrough
+  // "anthropic" profiles, same wire behavior as the "nvidia" profile above,
+  // and never consult a modelOverrideEnvVar (ignored for this apiFormat).
+  "bai-1": {
+    id: "bai-1",
+    label: "b.ai API #1",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_BAI_1_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_BAI_1_AUTH_TOKEN",
+    apiFormat: "anthropic",
+  },
+  "bai-2": {
+    id: "bai-2",
+    label: "b.ai API #2",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_BAI_2_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_BAI_2_AUTH_TOKEN",
+    apiFormat: "anthropic",
+  },
+  "bai-3": {
+    id: "bai-3",
+    label: "b.ai API #3",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_BAI_3_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_BAI_3_AUTH_TOKEN",
+    apiFormat: "anthropic",
+  },
+
+  // v0.13: platform.experientiallabs.ai. Its coding-agent setup doc has
+  // Claude Code talk to /v1/messages — the real Anthropic Messages
+  // protocol, not the OpenAI-shaped endpoints the same gateway also
+  // exposes at other paths — see docs/runtime-research-v0.13.md. Same
+  // byte-passthrough "anthropic" apiFormat as the b.ai profiles above.
+  "experientiallabs-1": {
+    id: "experientiallabs-1",
+    label: "Experiential Labs API",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN",
+    apiFormat: "anthropic",
+  },
 };
 
 // Fixed roster for this phase: a stand-in for a future "what can this agent
@@ -106,6 +180,24 @@ const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: st
   // format, to keep an always-registered example of the translated path
   // (not just passthrough) alongside agent-02's anthropic-format one.
   "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "mock-openai" },
+  // v0.13: Cline CLI (free-quota runtime) — see
+  // packages/adapters/cline and docs/runtime-research-v0.13.md.
+  "agent-07": { eligibleCapabilities: ["frontend", "docs"], runtime: "cline" },
+  // v0.13 Part D: agent-01/agent-03 above already cover the "2 official"
+  // requirement; these seven are the new backend-profile-routed agents —
+  // one per newly-registered profile (see DEFAULT_BACKEND_PROFILES above
+  // and docs/backend-profiles-v0.13.md for their env vars).
+  "agent-08": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-1" },
+  "agent-09": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-2" },
+  "agent-10": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-3" },
+  "agent-11": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-1" },
+  "agent-12": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-2" },
+  "agent-13": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-3" },
+  "agent-14": {
+    eligibleCapabilities: ["backend", "testing"],
+    runtime: "claude-code",
+    backendProfile: "experientiallabs-1",
+  },
 };
 
 const app = express();
@@ -144,6 +236,18 @@ const credentialRouter = createDefaultCredentialRouter((statuses) => {
 // registered with their resolved (persisted-override-or-default) profile.
 const backendProfileStore = new BackendProfileStore(DEFAULT_BACKEND_PROFILES, `${DATA_DIR}backend-profiles.json`);
 const agentAssignments = new AgentBackendAssignmentStore(`${DATA_DIR}agent-backend-assignments.json`);
+// v0.13 Part E: global "default backend profile" layer, applied only to
+// agents with neither an explicit per-agent override nor an AGENT_ROSTER
+// hardcoded default — see default-backend-store.ts's doc-comment for the
+// full priority order.
+const defaultBackendStore = new DefaultBackendStore(`${DATA_DIR}default-backend-profile.json`);
+
+/** Priority: explicit per-agent override > AGENT_ROSTER's own default > global default > official (undefined). */
+function resolveEffectiveBackendProfile(agentId: string, rosterDefault: string | undefined): string | undefined {
+  if (agentAssignments.hasExplicitOverride(agentId)) return agentAssignments.resolve(agentId, rosterDefault);
+  if (rosterDefault !== undefined) return rosterDefault;
+  return defaultBackendStore.get() ?? undefined;
+}
 
 // v0.9: started before any adapter so ClaudeCodeAdapter always has a real
 // proxy port to point backendProfile-routed agents at. Only agents with a
@@ -156,6 +260,7 @@ const orchestrator = new Orchestrator({
   adapters: {
     "claude-code": new ClaudeCodeAdapter(credentialRouter, backendProfileStore.registry, proxyBaseUrl),
     opencode: new OpenCodeAdapter(credentialRouter),
+    cline: new ClineAdapter(credentialRouter),
   },
   workspaceGuard: new GitRepoGuard(REPO_ROOT),
   broadcast: (event) => {
@@ -185,7 +290,7 @@ function makeAgent(id: string, runtime: string, eligibleCapabilities: string[], 
 }
 
 for (const [id, { runtime, eligibleCapabilities, backendProfile }] of Object.entries(AGENT_ROSTER)) {
-  const resolvedBackendProfile = agentAssignments.resolve(id, backendProfile);
+  const resolvedBackendProfile = resolveEffectiveBackendProfile(id, backendProfile);
   orchestrator.registerAgent(makeAgent(id, runtime, eligibleCapabilities, resolvedBackendProfile));
 }
 
@@ -202,6 +307,9 @@ wss.on("connection", (socket) => {
       // availability and the registry itself can both change at runtime.
       // Never baseUrlEnvVar/authTokenEnvVar *values*.
       backendProfiles: backendProfileStore.list(),
+      // v0.13 Part E: which profile id (or null for "official") every
+      // not-otherwise-pinned claude-code agent currently falls back to.
+      defaultBackendProfile: defaultBackendStore.get(),
     })
   );
   socket.on("close", () => clients.delete(socket));
@@ -355,6 +463,43 @@ app.put("/api/agents/:id/backend-profile", (req, res) => {
   orchestrator.setAgentBackendProfile(agent.id, backendProfile);
   agentAssignments.set(agent.id, backendProfile);
   res.json(orchestrator.getAgent(agent.id));
+});
+
+// v0.13 Part E: the global default backend profile — see
+// default-backend-store.ts and resolveEffectiveBackendProfile above. This
+// is a separate layer *underneath* the per-agent override endpoint above,
+// not a replacement for it.
+app.get("/api/default-backend-profile", (_req, res) => {
+  res.json({ backendProfile: defaultBackendStore.get() });
+});
+
+app.put("/api/default-backend-profile", (req, res) => {
+  const raw = req.body?.backendProfile;
+  if (raw !== null && raw !== undefined && typeof raw !== "string") {
+    res.status(400).json({ error: "backendProfile must be a string profile id, or null/undefined for official" });
+    return;
+  }
+  const backendProfile = raw === null || raw === undefined || raw === "official" ? null : raw;
+  if (backendProfile !== null && !backendProfileStore.registry[backendProfile]) {
+    res.status(400).json({ error: `Unknown backend profile "${backendProfile}"` });
+    return;
+  }
+
+  defaultBackendStore.set(backendProfile);
+  broadcast({ type: "default_backend_profile_changed", backendProfile });
+
+  // Live-reapply to every claude-code agent that isn't individually pinned
+  // (neither an explicit per-agent override nor an AGENT_ROSTER hardcoded
+  // default) — each repointed agent also emits its own
+  // agent_backend_profile_changed via Orchestrator.setAgentBackendProfile.
+  for (const agent of orchestrator.listAgents()) {
+    if (agent.runtime !== "claude-code") continue;
+    if (agentAssignments.hasExplicitOverride(agent.id)) continue;
+    if (AGENT_ROSTER[agent.id]?.backendProfile !== undefined) continue;
+    orchestrator.setAgentBackendProfile(agent.id, backendProfile ?? undefined);
+  }
+
+  res.json({ backendProfile: defaultBackendStore.get() });
 });
 
 httpServer.listen(PORT, () => {
