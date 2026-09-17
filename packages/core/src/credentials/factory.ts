@@ -38,6 +38,11 @@ export function createDefaultCredentialRouter(onChange?: (statuses: CredentialSo
   const sources: CredentialSource[] = [
     ...envSourcesFor("ANTHROPIC_API_KEY", "anthropic", "anthropic-key"),
     ...envSourcesFor("ANTHROPIC_AUTH_TOKEN", "anthropic", "anthropic-token"),
+    // v0.13: Cline's own hosted "cline" provider reads this the same way
+    // Claude Code reads ANTHROPIC_API_KEY (see ClineAdapter) — a resolve()
+    // miss isn't fatal, since a `cline auth` login session cached under
+    // ~/.cline is a valid fallback, same story as OpenCode below.
+    ...envSourcesFor("CLINE_API_KEY", "cline", "cline-key"),
 
     // Claude Code CLI can authenticate via `claude auth` login session
     // instead of an env var (see README) — there is no reliable way to
