@@ -16,7 +16,10 @@ So far:
   implementing that interface, not touching the Orchestrator or the UI. (A
   fourth candidate, Freebuff, was researched and found to have no headless
   or API surface at all as of v0.13 — see
-  [`docs/runtime-research-v0.13.md`](./docs/runtime-research-v0.13.md).)
+  [`docs/runtime-research-v0.13.md`](./docs/runtime-research-v0.13.md).
+  Re-verified in v0.13.1 against the actually-installed CLI binary
+  (same "no" — see
+  [`docs/runtime-research-v0.13.1.md`](./docs/runtime-research-v0.13.1.md)).)
 - Nine of the Claude Code agents are routed through independent third-party
   API backends instead of the operator's own official Anthropic subscription
   (NVIDIA NIM ×3, b.ai ×3, platform.experientiallabs.ai ×1, plus the two
