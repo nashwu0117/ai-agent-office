@@ -7,3 +7,4 @@ dist/
 .codegraph
 .omo/
 artifacts/
+.ai-office-dev/

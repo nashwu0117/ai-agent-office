@@ -143,9 +143,21 @@ npm install
 npm run dev
 ```
 
-This starts the server (`apps/server`, WebSocket + REST, default port 4500)
-and the web UI (`apps/web`, Vite dev server, prints its own port — usually
-5173) together. Open the URL Vite prints.
+This starts the server (`apps/server`, WebSocket + REST, default port
+`43117`) and the web UI (`apps/web`, Vite dev server, default port `43118`)
+together. These deliberately avoid the ports most development tools use.
+Override them with `AI_OFFICE_SERVER_PORT` and `AI_OFFICE_WEB_PORT`:
+
+```bash
+AI_OFFICE_SERVER_PORT=44117 AI_OFFICE_WEB_PORT=44118 npm run dev
+```
+
+The dev launcher records only its own child-process identity in
+`.ai-office-dev/`. On the next launch it may stop a verified stale process
+from this same checkout. If a requested port belongs to anything else (or
+cannot be verified), that process is left untouched and AI Office advances
+to the next free port. The log always prints the selected server and web
+ports; open the web URL Vite prints.
 
 To run them separately:
 

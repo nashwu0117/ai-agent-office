@@ -50,7 +50,8 @@ const RUNTIME_LABELS: Record<string, string> = {
   opencode: "OpenCode",
 };
 
-const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:4500`;
+const SERVER_PORT = import.meta.env.VITE_SERVER_PORT ?? "43117";
+const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${SERVER_PORT}`;
 
 export default function App() {
   const [agents, setAgents] = useState<Agent[]>([]);

@@ -8,7 +8,8 @@ import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 
-const PORT = Number(process.env.PORT ?? 4500);
+const DEFAULT_SERVER_PORT = 43117;
+const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
 
 // Layer-1 safety net (see SECURITY.md): this project's own checkout must
 // never be modified by worker execution, regardless of what workspacePath a

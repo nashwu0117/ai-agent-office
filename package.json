@@ -11,9 +11,9 @@
     "apps/web"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace apps/server & npm run dev --workspace apps/web",
-    "dev:server": "npm run dev --workspace apps/server",
-    "dev:web": "npm run dev --workspace apps/web",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node scripts/dev.mjs server",
+    "dev:web": "node scripts/dev.mjs web",
     "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
