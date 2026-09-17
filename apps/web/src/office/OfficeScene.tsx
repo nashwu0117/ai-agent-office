@@ -236,6 +236,8 @@ export function OfficeScene({
       if (destroyed || !hostRef.current) return;
 
       app.canvas.style.imageRendering = "pixelated";
+      app.canvas.setAttribute("aria-hidden", "true");
+      app.canvas.setAttribute("role", "presentation");
       hostRef.current.appendChild(app.canvas);
       appRef.current = app;
 
@@ -276,7 +278,43 @@ export function OfficeScene({
     };
   }, []);
 
-  return <div ref={hostRef} className="office-canvas" />;
+  return (
+    <section
+      ref={hostRef}
+      className="office-canvas"
+      aria-labelledby="office-scene-heading"
+      aria-describedby="office-scene-summary"
+    >
+      <h2 id="office-scene-heading" className="sr-only">
+        Live office agent status
+      </h2>
+      <p id="office-scene-summary" className="sr-only">
+        The pixel-art canvas is decorative. Use the following agent buttons to open the same agent details with a
+        keyboard or screen reader.
+      </p>
+      <ul className="agent-access-list" aria-label="Office agents">
+        {agents.map((agent) => {
+          const progress = progressByAgent[agent.id];
+          const state = agent.state.replaceAll("_", " ");
+          return (
+            <li key={agent.id}>
+              <button
+                type="button"
+                aria-pressed={selectedId === agent.id}
+                aria-label={`${agent.id}, ${state}${progress ? `, ${progress}` : ""}. Open agent details.`}
+                onClick={() => onSelect(agent.id)}
+              >
+                <span aria-hidden="true" className={`agent-access-state agent-access-state-${agent.state}`}>
+                  ●
+                </span>
+                {agent.id} · {state}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 function placeTile(layer: Container, texture: Texture, tx: number, ty: number): Sprite {

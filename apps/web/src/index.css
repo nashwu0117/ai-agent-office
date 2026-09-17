@@ -6,6 +6,7 @@
   --ink-800: #202337;
   --stone-700: #3d4359;
   --stone-500: #747c96;
+  --stone-400: #929ab4;
   --stone-300: #b3bad0;
   --paper: #f4e4cb;
   --paper-muted: #c9bca9;
@@ -19,6 +20,7 @@
   --danger: #e66a62;
   --danger-dark: #792f3b;
   --blue: #8da9d6;
+  --focus: #fff2a8;
   --outline: #181724;
   --pixel-shadow: 4px 4px 0 var(--outline);
   --font-ui: "DejaVu Sans Mono", "Lucida Console", "Courier New", monospace;
@@ -27,6 +29,18 @@
 
 * {
   box-sizing: border-box;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 
 html {
@@ -67,6 +81,30 @@ input[type="checkbox"] {
 ::selection {
   color: var(--outline);
   background: var(--gold);
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 10px;
+  left: 10px;
+  padding: 9px 12px;
+  color: var(--outline);
+  background: var(--focus);
+  border: 3px solid var(--outline);
+  box-shadow: 4px 4px 0 var(--outline);
+  font-weight: 900;
+  transform: translateY(-180%);
+}
+
+.skip-link:focus-visible {
+  outline: 3px solid var(--paper);
+  outline-offset: 3px;
+  transform: translateY(0);
+}
+
+#main-content:focus {
+  outline: none;
 }
 
 ::-webkit-scrollbar {
@@ -264,6 +302,85 @@ input[type="checkbox"] {
   box-shadow: 0 0 0 2px var(--stone-500);
 }
 
+.agent-access-list {
+  position: absolute;
+  z-index: 2;
+  left: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-width: calc(100% - 36px);
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--ink-950);
+  border: 3px solid var(--focus);
+  box-shadow: 4px 4px 0 var(--outline);
+  transition: opacity 80ms steps(1);
+}
+
+.agent-access-list:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.agent-access-list button {
+  min-height: 38px;
+  padding: 7px 9px;
+  color: var(--paper);
+  background: var(--ink-800);
+  border: 2px solid var(--stone-400);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--outline);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.agent-access-list button[aria-pressed="true"] {
+  color: var(--outline);
+  background: var(--gold);
+}
+
+.agent-access-list button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  box-shadow: 4px 4px 0 var(--outline);
+}
+
+.agent-access-state {
+  margin-right: 5px;
+  color: var(--stone-300);
+}
+
+.agent-access-state-available,
+.agent-access-state-releasing {
+  color: var(--blue);
+}
+
+.agent-access-state-assigned,
+.agent-access-state-starting,
+.agent-access-state-waiting {
+  color: var(--gold);
+}
+
+.agent-access-state-working {
+  color: var(--mint);
+}
+
+.agent-access-state-blocked,
+.agent-access-state-error {
+  color: var(--danger);
+}
+
+.agent-access-state-done {
+  color: #c4adff;
+}
+
 .task-form,
 .goal-panel,
 .completions {
@@ -307,6 +424,7 @@ input[type="checkbox"] {
 
 .form-heading {
   min-height: 24px;
+  margin: 0;
   padding-bottom: 9px;
   color: var(--paper);
   border-bottom: 2px dashed var(--stone-700);
@@ -351,7 +469,7 @@ input[type="checkbox"] {
 
 .task-form textarea::placeholder,
 .task-form input[type="text"]::placeholder {
-  color: var(--stone-500);
+  color: var(--stone-400);
   opacity: 1;
 }
 
@@ -369,6 +487,12 @@ input[type="checkbox"] {
     inset 3px 3px 0 rgba(0, 0, 0, 0.34),
     0 0 0 2px var(--wall),
     3px 3px 0 var(--outline);
+}
+
+.task-form textarea:focus-visible,
+.task-form input[type="text"]:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .task-form button {
@@ -430,14 +554,14 @@ input[type="checkbox"] {
 }
 
 .task-form button:focus-visible {
-  outline: 3px solid var(--paper);
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
 
 .task-form button:disabled {
-  color: var(--stone-700);
-  background: var(--stone-500);
-  filter: saturate(0.45);
+  color: var(--paper);
+  background: var(--stone-700);
+  filter: saturate(0.35);
   cursor: not-allowed;
 }
 
@@ -461,6 +585,8 @@ input[type="checkbox"] {
   background: rgba(12, 13, 22, 0.7);
   border: 2px solid var(--stone-700);
   font-size: 11px;
+  min-inline-size: 0;
+  margin: 0;
 }
 
 .capability-picker-label {
@@ -505,7 +631,7 @@ input[type="checkbox"] {
 }
 
 .capability-checkbox input:focus-visible {
-  outline: 2px solid var(--gold);
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
 
@@ -599,6 +725,11 @@ input[type="checkbox"] {
 
 .completion-card .goal-card-dot {
   margin-right: 8px;
+}
+
+.status-icon {
+  color: var(--paper);
+  font-weight: 900;
 }
 
 .completion-meta {
@@ -740,6 +871,12 @@ input[type="checkbox"] {
   border-bottom: 3px solid var(--outline);
 }
 
+.queue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .queue-empty {
   position: relative;
   padding: 16px 12px 16px 34px;
@@ -863,6 +1000,13 @@ input[type="checkbox"] {
   .queue-panel h2,
   .queue-panel .queue-empty {
     grid-column: 1 / -1;
+  }
+
+  .queue-list {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .queue-panel h2,
@@ -1040,6 +1184,10 @@ input[type="checkbox"] {
   .queue-panel {
     display: block;
     padding: 20px 14px 28px;
+  }
+
+  .queue-list {
+    display: block;
   }
 
   .queue-panel::before {
