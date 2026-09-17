@@ -5,7 +5,7 @@ An open-source "AI company" office: instead of a wall of terminals, you see a
 Idle workers wander the Public/Talent Area; once assigned a task they walk to
 a workstation, work, and return when done.
 
-## Status: vertical slice (v0.5.1)
+## Status: vertical slice (v0.7)
 
 This is a progressively-built vertical slice, not the full product vision.
 So far:
@@ -39,6 +39,17 @@ So far:
   detect-and-revert safety net behind it regardless. See
   [`SECURITY.md`](./SECURITY.md) for what's actually guaranteed, what isn't,
   and the incident that prompted it.
+- Provider credentials go through a `CredentialRouter`
+  (`packages/core/src/credentials`) instead of each piece reading one
+  hardcoded env var: `AnthropicMasterBrain` and `ClaudeCodeAdapter` both
+  resolve the same `"anthropic"` provider, so a second `ANTHROPIC_API_KEY_BACKUP`
+  is picked up automatically and, if the primary key ever gets a 401/403/429
+  from the live API, the very same `plan()`/`summarize()` call retries once
+  against the backup instead of failing outright. A source that fails is
+  skipped for the rest of that process — see "Setting up the Master" below.
+  The server logs every detected source's id/provider/availability at
+  startup (never the secret value), and the header shows a live
+  "Credentials: N/M available" pill fed by the same router.
 
 ## Prerequisites
 
@@ -102,13 +113,28 @@ single-message calls, not assumed) but worked immediately on
 your credential has different access, override it with
 `ANTHROPIC_MASTER_MODEL`.
 
-If neither `ANTHROPIC_API_KEY` nor `ANTHROPIC_AUTH_TOKEN` is set, the server
-still starts fine and every other v0.1-v0.4 feature (including the manual
-task path) keeps working — only `POST /api/goals` fails, cleanly, with a
-`goal_failed` event explaining the missing credential instead of a crash.
-This was verified by hand in this project's own dev environment before a
+**Optional: one or more backup credentials.** Set `ANTHROPIC_API_KEY_BACKUP`
+(and, if you need more, `_BACKUP2`/`_BACKUP3`/`_BACKUP4`) — or the same
+suffixes on `ANTHROPIC_AUTH_TOKEN` — to give the `CredentialRouter`
+somewhere to fail over to. If the primary gets a 401/403/429 from a live
+call, that source is marked failed for the rest of this process and the
+very same `plan()`/`summarize()` call retries once against the next
+available one, so a rotated/rate-limited key doesn't take down Master
+planning for the whole session (only a server restart clears a source
+marked failed — there's no automatic recovery in this phase). Both
+`ClaudeCodeAdapter` and `AnthropicMasterBrain` resolve the same
+`"anthropic"` provider from the router, so a backup key covers both.
+
+If no `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` (or backup) is set, or
+every configured one has already failed, the server still starts fine and
+every other feature (including the manual task path) keeps working — only
+`POST /api/goals` fails, cleanly, with a `goal_failed` event (`authFailure:
+true`) explaining the missing/exhausted credential instead of a crash. This
+was verified by hand in this project's own dev environment before a
 credential was added — that failure path is what actually ran before
-`claude setup-token` was used to add one.
+`claude setup-token` was used to add one. The server also logs every
+detected credential source's id/provider/availability at startup — check
+that output first if `POST /api/goals` isn't working as expected.
 
 ## Running locally
 
@@ -166,7 +192,8 @@ npm run dev:web
 ```
 packages/core                    shared types, event schema, Orchestrator (dispatch + capability
                                   matching + per-workspace lock), GoalCoordinator, MasterBrain
-                                  interface, shared CLI-adapter helpers
+                                  interface, shared CLI-adapter helpers, CredentialRouter
+                                  (packages/core/src/credentials)
 packages/adapters/claude-code    Claude Code CLI adapter (implements RuntimeAdapter)
 packages/adapters/opencode       OpenCode CLI adapter (implements RuntimeAdapter)
 packages/adapters/master-anthropic  Anthropic Messages API MasterBrain (implements MasterBrain)
