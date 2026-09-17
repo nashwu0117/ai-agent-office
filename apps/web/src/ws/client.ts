@@ -9,6 +9,8 @@ export type ServerMessage =
       credentials: CredentialSourceStatus[];
       /** v0.10: id/label/apiFormat/env-var-names/available for every registered BackendProfile — never secret values. See apps/server/src/backend-profile-store.ts. */
       backendProfiles?: BackendProfileClientInfo[];
+      /** v0.13 Part E: the global default backend profile id, or null for "official" — see apps/server/src/default-backend-store.ts. */
+      defaultBackendProfile?: string | null;
     };
 
 type Listener = (msg: ServerMessage) => void;
@@ -138,4 +140,9 @@ export function updateBackendProfile(id: string, patch: Partial<Omit<BackendProf
 
 export function setAgentBackendProfile(agentId: string, backendProfile: string | null): Promise<void> {
   return jsonRequest(`/api/agents/${encodeURIComponent(agentId)}/backend-profile`, "PUT", { backendProfile });
+}
+
+/** v0.13 Part E: the global default — see BackendProfilesPanel.tsx's "Default backend" section. */
+export function setDefaultBackendProfile(backendProfile: string | null): Promise<void> {
+  return jsonRequest("/api/default-backend-profile", "PUT", { backendProfile });
 }

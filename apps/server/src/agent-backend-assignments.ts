@@ -27,6 +27,17 @@ export class AgentBackendAssignmentStore {
     return value === null ? undefined : value;
   }
 
+  /**
+   * v0.13: true once an operator has explicitly reassigned this agent
+   * through the management UI (including explicitly clearing it back to
+   * "official") — distinct from "never touched," which is what lets
+   * DefaultBackendStore's global default (apps/server/src/default-backend-store.ts)
+   * apply only to agents nobody has ever individually pinned.
+   */
+  hasExplicitOverride(agentId: string): boolean {
+    return agentId in this.assignments;
+  }
+
   set(agentId: string, backendProfile: string | undefined): void {
     this.assignments[agentId] = backendProfile ?? null;
     this.persist();

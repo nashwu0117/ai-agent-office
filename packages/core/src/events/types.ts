@@ -45,4 +45,6 @@ export type OfficeEvent =
   /** v0.10: pushed whenever a backend profile is added or edited through the management UI (POST/PUT /api/backend-profiles), so every connected client's profile list stays live without a reload. */
   | { type: "backend_profiles_changed"; profiles: BackendProfileClientInfo[] }
   /** v0.10: pushed whenever an agent is repointed at a different backend profile through the management UI (PUT /api/agents/:id/backend-profile). Takes effect on that agent's *next* dispatched task — see Orchestrator.setAgentBackendProfile. */
-  | { type: "agent_backend_profile_changed"; agentId: string; backendProfile?: string };
+  | { type: "agent_backend_profile_changed"; agentId: string; backendProfile?: string }
+  /** v0.13: pushed whenever the global default backend profile is changed through the management UI (PUT /api/default-backend-profile) — see apps/server/src/default-backend-store.ts. Every claude-code agent with neither a persisted per-agent override nor an AGENT_ROSTER-hardcoded default follows this value; each one that gets live-repointed also emits its own agent_backend_profile_changed. */
+  | { type: "default_backend_profile_changed"; backendProfile: string | null };

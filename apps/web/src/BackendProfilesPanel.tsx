@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Agent, BackendProfileClientInfo, CredentialSourceStatus } from "@ai-office/core";
-import { createBackendProfile, setAgentBackendProfile, updateBackendProfile } from "./ws/client.js";
+import { createBackendProfile, setAgentBackendProfile, setDefaultBackendProfile, updateBackendProfile } from "./ws/client.js";
 
 // v0.10: Credential / Backend Profile management panel — the UI Part A of
 // the v0.10 build prompt calls for, replacing "check the startup log or
@@ -21,6 +21,8 @@ interface Props {
   onClose: () => void;
   credentialStatuses: CredentialSourceStatus[];
   backendProfiles: BackendProfileClientInfo[];
+  /** v0.13 Part E: profile id every not-otherwise-pinned claude-code agent currently falls back to, or null for "official". */
+  defaultBackendProfile: string | null;
   agents: Agent[];
 }
 
@@ -42,7 +44,14 @@ const EMPTY_NEW_PROFILE: NewProfileForm = {
   modelOverrideEnvVar: "",
 };
 
-export function BackendProfilesPanel({ open, onClose, credentialStatuses, backendProfiles, agents }: Props) {
+export function BackendProfilesPanel({
+  open,
+  onClose,
+  credentialStatuses,
+  backendProfiles,
+  defaultBackendProfile,
+  agents,
+}: Props) {
   const [newProfile, setNewProfile] = useState<NewProfileForm>(EMPTY_NEW_PROFILE);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -54,6 +63,8 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
 
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigningAgentId, setAssigningAgentId] = useState<string | null>(null);
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const [settingDefault, setSettingDefault] = useState(false);
   const masterCliSession = credentialStatuses.find((source) => source.id === "claude-code-cli-session");
 
   if (!open) return null;
@@ -107,6 +118,18 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
       setEditError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSetDefault(backendProfile: string) {
+    setDefaultError(null);
+    setSettingDefault(true);
+    try {
+      await setDefaultBackendProfile(backendProfile === "official" ? null : backendProfile);
+    } catch (err) {
+      setDefaultError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingDefault(false);
     }
   }
 
@@ -380,6 +403,36 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
               </div>
             )}
           </form>
+        </section>
+
+        <section className="bp-section" aria-labelledby="bp-default-heading">
+          <h3 id="bp-default-heading">Default backend for unassigned agents</h3>
+          <p className="bp-hint">
+            Applies only to a claude-code agent with no individual assignment below and no hardcoded default of its
+            own — it never overrides either of those. Persisted, and takes effect immediately for every agent that
+            currently qualifies (each one's row below updates to match), with no restart needed.
+          </p>
+          <label className="bp-default-select">
+            Default backend profile
+            <select
+              aria-label="Default backend profile for unassigned agents"
+              value={defaultBackendProfile ?? "official"}
+              disabled={settingDefault}
+              onChange={(e) => handleSetDefault(e.target.value)}
+            >
+              <option value="official">Official (Anthropic)</option>
+              {backendProfiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {defaultError && (
+            <div className="bp-form-error" role="alert">
+              {defaultError}
+            </div>
+          )}
         </section>
 
         <section className="bp-section" aria-labelledby="bp-agents-heading">
