@@ -116,7 +116,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
     return;
   }
 
-  await proxyOpenAITranslated(res, baseUrl, authToken, anthropicReq);
+  await proxyOpenAITranslated(res, baseUrl, authToken, anthropicReq, profile.modelOverrideEnvVar);
 }
 
 function readRawBody(req: IncomingMessage): Promise<Buffer> {
@@ -196,7 +196,8 @@ async function proxyOpenAITranslated(
   res: ServerResponse,
   baseUrl: string,
   authToken: string,
-  anthropicReq: AnthropicMessagesRequest
+  anthropicReq: AnthropicMessagesRequest,
+  modelOverrideEnvVar: string | undefined
 ): Promise<void> {
   const { request: openaiReq, droppedTools } = anthropicRequestToOpenAI(anthropicReq);
   if (droppedTools.length > 0) {
@@ -204,6 +205,15 @@ async function proxyOpenAITranslated(
       `[ai-office proxy] dropped ${droppedTools.length} Anthropic-native tool(s) with no OpenAI function-calling equivalent: ${droppedTools.join(", ")}`
     );
   }
+
+  // v0.11: req.model at this point is still whatever Anthropic model id the
+  // `claude` CLI sent (e.g. "claude-3-5-sonnet-...") — meaningless to a real
+  // OpenAI-format backend with its own model namespace. anthropicReq.model
+  // (used below to build the translated response) is left untouched, so the
+  // CLI still sees the model id it asked for, matching translate.ts's
+  // documented echo-back behavior.
+  const modelOverride = modelOverrideEnvVar && process.env[modelOverrideEnvVar]?.trim();
+  if (modelOverride) openaiReq.model = modelOverride;
 
   const upstream = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",

@@ -112,6 +112,7 @@ export interface BackendProfileInput {
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
+  modelOverrideEnvVar?: string;
 }
 
 async function jsonRequest(url: string, method: string, body: unknown): Promise<void> {

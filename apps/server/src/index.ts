@@ -283,19 +283,20 @@ app.get("/api/backend-profiles", (_req, res) => {
 });
 
 app.post("/api/backend-profiles", (req, res) => {
-  const { id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = req.body ?? {};
+  const { id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar } = req.body ?? {};
   if (
     typeof id !== "string" ||
     typeof label !== "string" ||
     typeof apiFormat !== "string" ||
     typeof baseUrlEnvVar !== "string" ||
-    typeof authTokenEnvVar !== "string"
+    typeof authTokenEnvVar !== "string" ||
+    (modelOverrideEnvVar !== undefined && typeof modelOverrideEnvVar !== "string")
   ) {
-    res.status(400).json({ error: "id, label, apiFormat, baseUrlEnvVar, and authTokenEnvVar (all strings) are required" });
+    res.status(400).json({ error: "id, label, apiFormat, baseUrlEnvVar, and authTokenEnvVar (all strings) are required; modelOverrideEnvVar is an optional string" });
     return;
   }
   try {
-    backendProfileStore.create({ id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar });
+    backendProfileStore.create({ id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar });
     broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
     res.status(201).json(backendProfileStore.list().find((p) => p.id === id));
   } catch (err) {
@@ -308,9 +309,9 @@ app.post("/api/backend-profiles", (req, res) => {
 });
 
 app.put("/api/backend-profiles/:id", (req, res) => {
-  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = req.body ?? {};
+  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar } = req.body ?? {};
   try {
-    backendProfileStore.update(req.params.id, { label, apiFormat, baseUrlEnvVar, authTokenEnvVar });
+    backendProfileStore.update(req.params.id, { label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar });
     broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
     res.json(backendProfileStore.list().find((p) => p.id === req.params.id));
   } catch (err) {

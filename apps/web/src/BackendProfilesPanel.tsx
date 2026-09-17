@@ -30,6 +30,7 @@ interface NewProfileForm {
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
+  modelOverrideEnvVar: string;
 }
 
 const EMPTY_NEW_PROFILE: NewProfileForm = {
@@ -38,6 +39,7 @@ const EMPTY_NEW_PROFILE: NewProfileForm = {
   apiFormat: "anthropic",
   baseUrlEnvVar: "",
   authTokenEnvVar: "",
+  modelOverrideEnvVar: "",
 };
 
 export function BackendProfilesPanel({ open, onClose, credentialStatuses, backendProfiles, agents }: Props) {
@@ -61,7 +63,10 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
     setCreateError(null);
     setCreating(true);
     try {
-      await createBackendProfile(newProfile);
+      await createBackendProfile({
+        ...newProfile,
+        modelOverrideEnvVar: newProfile.modelOverrideEnvVar.trim() || undefined,
+      });
       setNewProfile(EMPTY_NEW_PROFILE);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err));
@@ -78,6 +83,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
       apiFormat: profile.apiFormat,
       baseUrlEnvVar: profile.baseUrlEnvVar,
       authTokenEnvVar: profile.authTokenEnvVar,
+      modelOverrideEnvVar: profile.modelOverrideEnvVar ?? "",
     });
     setEditError(null);
   }
@@ -93,6 +99,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
         apiFormat: editDraft.apiFormat,
         baseUrlEnvVar: editDraft.baseUrlEnvVar,
         authTokenEnvVar: editDraft.authTokenEnvVar,
+        modelOverrideEnvVar: editDraft.modelOverrideEnvVar.trim() || undefined,
       });
       setEditingId(null);
       setEditDraft(null);
@@ -207,6 +214,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                   <th>API format</th>
                   <th>Base URL env var</th>
                   <th>Auth token env var</th>
+                  <th>Model override env var</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -215,7 +223,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                 {backendProfiles.map((p) =>
                   editingId === p.id && editDraft ? (
                     <tr key={p.id}>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <form className="bp-edit-form" onSubmit={handleSaveEdit}>
                           <input
                             aria-label="Label"
@@ -245,6 +253,12 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                             value={editDraft.authTokenEnvVar}
                             onChange={(e) => setEditDraft({ ...editDraft, authTokenEnvVar: e.target.value })}
                             required
+                          />
+                          <input
+                            aria-label="Model override environment variable name (optional)"
+                            placeholder="optional, e.g. AI_OFFICE_NVIDIA_MODEL"
+                            value={editDraft.modelOverrideEnvVar}
+                            onChange={(e) => setEditDraft({ ...editDraft, modelOverrideEnvVar: e.target.value })}
                           />
                           <button type="submit" disabled={saving}>
                             {saving ? "Saving…" : "Save"}
@@ -278,6 +292,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                       <td>
                         <code>{p.authTokenEnvVar}</code>
                       </td>
+                      <td>{p.modelOverrideEnvVar ? <code>{p.modelOverrideEnvVar}</code> : <span className="bp-hint">—</span>}</td>
                       <td>
                         <span className={`bp-status-pill ${p.available ? "bp-status-ok" : "bp-status-bad"}`}>
                           {p.available ? "Ready" : "Missing env var(s)"}
@@ -345,6 +360,14 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                   value={newProfile.authTokenEnvVar}
                   onChange={(e) => setNewProfile({ ...newProfile, authTokenEnvVar: e.target.value })}
                   required
+                />
+              </label>
+              <label>
+                Model override env var name (optional)
+                <input
+                  placeholder="optional — e.g. AI_OFFICE_BACKEND_MY_PROVIDER_MODEL"
+                  value={newProfile.modelOverrideEnvVar}
+                  onChange={(e) => setNewProfile({ ...newProfile, modelOverrideEnvVar: e.target.value })}
                 />
               </label>
             </div>

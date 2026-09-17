@@ -34,6 +34,19 @@ export interface BackendProfile {
    * best-effort pretending the two APIs are equivalent.
    */
   apiFormat: "anthropic" | "openai-chat-completions";
+  /**
+   * v0.11: env var this server reads a fixed model slug from, substituted
+   * for the Anthropic model string the `claude` CLI sends before forwarding
+   * an "openai-chat-completions" request upstream. Discovered necessary
+   * against a real NVIDIA NIM backend (docs/api-format-translation.md's
+   * v0.9 mock never validated `model`, so v0.9's straight passthrough of
+   * req.model — a Claude Code model id like "claude-3-5-sonnet-..." — went
+   * unnoticed until a real backend rejected it as an unknown model/function).
+   * Ignored when apiFormat is "anthropic" (that path is byte-passthrough and
+   * has no separate model field to rewrite). Undefined means "no override",
+   * the original v0.9 behavior.
+   */
+  modelOverrideEnvVar?: string;
 }
 
 /** Keyed by BackendProfile.id. "official"/undefined is the implicit default and never appears here — it means "use CredentialRouter as before, unchanged". */
@@ -53,6 +66,8 @@ export interface BackendProfileClientInfo {
   apiFormat: BackendProfile["apiFormat"];
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
+  /** v0.11: see BackendProfile.modelOverrideEnvVar. Undefined when this profile has none registered. */
+  modelOverrideEnvVar?: string;
   /** Whether both baseUrlEnvVar and authTokenEnvVar are currently set (non-empty) on this server's process — never proves the values are valid credentials, only present. */
   available: boolean;
 }

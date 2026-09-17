@@ -13,6 +13,7 @@ export interface BackendProfileInput {
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
+  modelOverrideEnvVar?: string;
 }
 
 export interface BackendProfileUpdate {
@@ -20,6 +21,7 @@ export interface BackendProfileUpdate {
   apiFormat?: string;
   baseUrlEnvVar?: string;
   authTokenEnvVar?: string;
+  modelOverrideEnvVar?: string;
 }
 
 /**
@@ -84,6 +86,7 @@ export class BackendProfileStore {
       apiFormat: patch.apiFormat ?? existing.apiFormat,
       baseUrlEnvVar: patch.baseUrlEnvVar ?? existing.baseUrlEnvVar,
       authTokenEnvVar: patch.authTokenEnvVar ?? existing.authTokenEnvVar,
+      modelOverrideEnvVar: patch.modelOverrideEnvVar ?? existing.modelOverrideEnvVar,
     });
     this.registry[id] = merged;
     this.persist();
@@ -101,12 +104,14 @@ export class BackendProfileStore {
     if (!baseUrlEnvVar || !authTokenEnvVar) {
       throw new BackendProfileValidationError("baseUrlEnvVar and authTokenEnvVar are both required (env var names, not values).");
     }
+    const modelOverrideEnvVar = input.modelOverrideEnvVar?.trim();
     return {
       id,
       label,
       apiFormat: input.apiFormat as BackendProfile["apiFormat"],
       baseUrlEnvVar,
       authTokenEnvVar,
+      ...(modelOverrideEnvVar ? { modelOverrideEnvVar } : {}),
     };
   }
 
@@ -139,6 +144,7 @@ function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
     apiFormat: profile.apiFormat,
     baseUrlEnvVar: profile.baseUrlEnvVar,
     authTokenEnvVar: profile.authTokenEnvVar,
+    ...(profile.modelOverrideEnvVar ? { modelOverrideEnvVar: profile.modelOverrideEnvVar } : {}),
     available: Boolean(baseUrl?.trim()) && Boolean(authToken?.trim()),
   };
 }
