@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Agent, Task } from "@ai-office/core";
+import type { Agent, CredentialSourceStatus, Task } from "@ai-office/core";
 import { KNOWN_CAPABILITIES } from "@ai-office/core";
 import { OfficeClient, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
@@ -17,6 +17,7 @@ interface CompletionCard {
   filesChanged: string[];
   ok: boolean;
   securityViolation?: boolean;
+  authFailure?: boolean;
 }
 
 type GoalStatus = "planning" | "planned" | "failed" | "summarized";
@@ -28,6 +29,7 @@ interface GoalState {
   status: GoalStatus;
   taskCount?: number;
   reason?: string;
+  authFailure?: boolean;
   summary?: string;
   createdAt: number;
 }
@@ -67,6 +69,7 @@ export default function App() {
   const [goalSubmitting, setGoalSubmitting] = useState(false);
   const [goalFormError, setGoalFormError] = useState<string | null>(null);
   const [securityAlertAgents, setSecurityAlertAgents] = useState<Set<string>>(new Set());
+  const [credentialStatuses, setCredentialStatuses] = useState<CredentialSourceStatus[]>([]);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
@@ -79,9 +82,17 @@ export default function App() {
       if (msg.type === "snapshot") {
         setAgents(msg.agents);
         setTasksById(Object.fromEntries(msg.tasks.map((t) => [t.id, t])));
+        setCredentialStatuses(msg.credentials);
         setAnnouncement(
           `Office updated. ${msg.agents.length} agent${msg.agents.length === 1 ? "" : "s"} and ${msg.tasks.length} task${msg.tasks.length === 1 ? "" : "s"} loaded.`
         );
+        return;
+      }
+
+      if (msg.type === "credential_status_changed") {
+        setCredentialStatuses(msg.sources);
+        const available = msg.sources.filter((source) => source.available).length;
+        setAnnouncement(`Credential status updated. ${available} of ${msg.sources.length} available.`);
         return;
       }
 
@@ -145,6 +156,7 @@ export default function App() {
             filesChanged: [],
             ok: false,
             securityViolation: msg.securityViolation,
+            authFailure: msg.authFailure,
           },
           ...prev,
         ]);
@@ -159,7 +171,7 @@ export default function App() {
           }, 6000);
         }
         setAnnouncement(
-          `${msg.securityViolation ? "Security failure" : "Task failure"}: ${msg.taskId}, ${msg.reason}`
+          `${msg.securityViolation ? "Security failure" : msg.authFailure ? "Authentication failure" : "Task failure"}: ${msg.taskId}, ${msg.reason}`
         );
         return;
       }
@@ -191,9 +203,11 @@ export default function App() {
       if (msg.type === "goal_failed") {
         setGoalsById((prev) => ({
           ...prev,
-          [msg.goalId]: { ...prev[msg.goalId], status: "failed", reason: msg.reason },
+          [msg.goalId]: { ...prev[msg.goalId], status: "failed", reason: msg.reason, authFailure: msg.authFailure },
         }));
-        setAnnouncement(`Master planning failed for ${msg.goal}: ${msg.reason}`);
+        setAnnouncement(
+          `Master planning failed for ${msg.goal}${msg.authFailure ? " (authentication)" : ""}: ${msg.reason}`
+        );
         return;
       }
 
@@ -237,6 +251,11 @@ export default function App() {
   );
 
   const goalsSorted = useMemo(() => Object.values(goalsById).sort((a, b) => b.createdAt - a.createdAt), [goalsById]);
+
+  const availableCredentialCount = credentialStatuses.filter((s) => s.available).length;
+  const credentialStatusLabel = credentialStatuses
+    .map((status) => `${status.provider} ${status.id}: ${status.available ? "available" : "unavailable"}`)
+    .join(". ");
 
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
 
@@ -282,6 +301,16 @@ export default function App() {
       </div>
       <header className="app-header">
         <h1>AI Office — Vertical Slice</h1>
+        {credentialStatuses.length > 0 && (
+          <div
+            className={`credential-pill ${availableCredentialCount === 0 ? "credential-pill-none" : ""}`}
+            title={credentialStatuses.map((s) => `${s.provider}/${s.id}: ${s.available ? "available" : "unavailable"}`).join("\n")}
+            aria-label={`Credentials: ${availableCredentialCount} of ${credentialStatuses.length} available. ${credentialStatusLabel}`}
+          >
+            <span className="credential-pill-dot" aria-hidden="true" />
+            Credentials: {availableCredentialCount}/{credentialStatuses.length} available
+          </div>
+        )}
       </header>
 
       <div className="app-body">
@@ -349,8 +378,9 @@ export default function App() {
                     </div>
                   )}
                   {g.status === "failed" && (
-                    <div className="goal-card-status goal-card-status-fail">
-                      <span aria-hidden="true">⚠ </span>Master planning failed: {g.reason}
+                    <div className={`goal-card-status goal-card-status-fail ${g.authFailure ? "goal-card-status-auth" : ""}`}>
+                      <span aria-hidden="true">{g.authFailure ? "🔑 " : "⚠ "}</span>
+                      Master planning failed{g.authFailure ? " (authentication)" : ""}: {g.reason}
                     </div>
                   )}
                   {g.status === "summarized" && <div className="goal-card-summary">{g.summary}</div>}
@@ -421,16 +451,22 @@ export default function App() {
               return (
                 <article
                   key={c.key}
-                  className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : "fail"}`}
+                  className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : c.authFailure ? "auth" : "fail"}`}
                 >
                   {goalId && (
                     <span className="goal-card-dot" style={{ background: goalColor(goalId) }} aria-hidden="true" />
                   )}
                   <span className="status-icon" aria-hidden="true">
-                    {c.ok ? "✓" : c.securityViolation ? "⚠" : "✕"}
+                    {c.ok ? "✓" : c.securityViolation ? "⚠" : c.authFailure ? "🔑" : "✕"}
                   </span>{" "}
                   <strong>
-                    {c.ok ? "Task completed" : c.securityViolation ? "Security failure: workspace isolation violation" : "Task failed"}
+                    {c.ok
+                      ? "Task completed"
+                      : c.securityViolation
+                        ? "Security failure: workspace isolation violation"
+                        : c.authFailure
+                          ? "Authentication failure"
+                          : "Task failed"}
                   </strong>
                   <div>{c.summary}</div>
                   <div className="completion-meta">

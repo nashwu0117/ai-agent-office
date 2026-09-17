@@ -134,7 +134,12 @@ input[type="checkbox"] {
 .app-header {
   position: relative;
   z-index: 3;
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
   min-height: 64px;
   padding: 12px 24px 11px;
   overflow: hidden;
@@ -185,6 +190,41 @@ input[type="checkbox"] {
   box-shadow:
     inset 0 0 0 3px var(--wall),
     3px 3px 0 var(--outline);
+}
+
+.credential-pill {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  color: var(--paper-muted);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-700);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.credential-pill-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  background: var(--mint);
+  box-shadow: 1px 1px 0 var(--outline);
+}
+
+.credential-pill-none {
+  color: #ffe6b3;
+  border-color: var(--gold);
+}
+
+.credential-pill-none .credential-pill-dot {
+  background: var(--danger);
 }
 
 .app-header h1::after {
@@ -694,6 +734,13 @@ input[type="checkbox"] {
   border-left-color: var(--danger);
 }
 
+/* Amber, matching .completion-card.auth — an auth failure is fixable by the
+   operator (bad/missing credential), not a security or logic problem. */
+.goal-card-status-auth {
+  color: #fff0cf;
+  border-left-color: var(--gold);
+}
+
 .goal-card-summary {
   color: var(--paper-muted);
   border-left-color: var(--mint);
@@ -721,6 +768,14 @@ input[type="checkbox"] {
   border-width: 3px 3px 3px 6px;
   background: linear-gradient(90deg, rgba(230, 106, 98, 0.22), transparent 60%), var(--ink-850);
   animation: warning-flash 700ms steps(2, jump-none) 3;
+}
+
+/* Amber, not red — an auth failure means "fix the credential and re-run",
+   not "something dangerous happened" like security/dependency failures. */
+.completion-card.auth {
+  border-color: var(--gold);
+  border-width: 3px 3px 3px 6px;
+  background: linear-gradient(90deg, rgba(243, 198, 107, 0.18), transparent 55%), var(--ink-850);
 }
 
 .completion-card .goal-card-dot {

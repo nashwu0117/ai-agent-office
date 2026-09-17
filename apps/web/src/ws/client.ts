@@ -1,6 +1,8 @@
-import type { Agent, OfficeEvent, Task } from "@ai-office/core";
+import type { Agent, CredentialSourceStatus, OfficeEvent, Task } from "@ai-office/core";
 
-export type ServerMessage = OfficeEvent | { type: "snapshot"; agents: Agent[]; tasks: Task[] };
+export type ServerMessage =
+  | OfficeEvent
+  | { type: "snapshot"; agents: Agent[]; tasks: Task[]; credentials: CredentialSourceStatus[] };
 
 type Listener = (msg: ServerMessage) => void;
 
