@@ -13,33 +13,58 @@ const TILE = 16;
 const ZOOM = 3;
 const SCREEN_TILE = TILE * ZOOM;
 
-const COLS = 20;
-const ROWS = 12;
+// v0.15: grown from 20x12 to 25x15 (same 5:3 aspect ratio the CSS
+// `.office-canvas canvas` rule assumes) to fit a third desk row and a wider
+// walkway — AGENT_ROSTER grew to 14 agents in v0.13 but this scene still
+// only had 6 desk/home slots, so agents 7-14 landed exactly on top of
+// agents 1-6 (same modulo'd slot) and their labels visibly overlapped.
+const COLS = 25;
+const ROWS = 15;
 const WIDTH = COLS * SCREEN_TILE;
 const HEIGHT = ROWS * SCREEN_TILE;
 
+// Three rows of desks (5 + 5 + 4 = 14) inside the widened open-office block
+// (tx 4-19, ty 1-9), same desk/seat spacing pattern as the original 6-desk
+// layout, just repeated for a third row.
 const WORKSTATIONS = [
   { desk: [6, 2], seat: [6.5, 3] },
   { desk: [9, 2], seat: [9.5, 3] },
   { desk: [12, 2], seat: [12.5, 3] },
+  { desk: [15, 2], seat: [15.5, 3] },
+  { desk: [18, 2], seat: [18.5, 3] },
   { desk: [6, 5], seat: [6.5, 6] },
   { desk: [9, 5], seat: [9.5, 6] },
   { desk: [12, 5], seat: [12.5, 6] },
+  { desk: [15, 5], seat: [15.5, 6] },
+  { desk: [18, 5], seat: [18.5, 6] },
+  { desk: [6, 8], seat: [6.5, 9] },
+  { desk: [9, 8], seat: [9.5, 9] },
+  { desk: [12, 8], seat: [12.5, 9] },
+  { desk: [15, 8], seat: [15.5, 9] },
 ] as const;
 
+// Two rows of 7 in the central walkway between the meeting room (tx <= 6)
+// and the lounge (tx >= 18), spaced 1.5 tiles (72px) apart — comfortably
+// wider than an agent-id label (~62px) so 14 labels never collide.
 const PUBLIC_HOMES = [
-  // Keep the public lineup inside the clear central walkway. Starting at
-  // 6.5 prevents agent-01 from overlapping the meeting-room chair at x=5.
-  [6.5, 10.3],
-  [8.05, 10.3],
-  [9.6, 10.3],
-  [11.15, 10.3],
-  [12.7, 10.3],
-  [14.25, 10.3],
+  [7.5, 12.3],
+  [9.0, 12.3],
+  [10.5, 12.3],
+  [12.0, 12.3],
+  [13.5, 12.3],
+  [15.0, 12.3],
+  [16.5, 12.3],
+  [7.5, 13.8],
+  [9.0, 13.8],
+  [10.5, 13.8],
+  [12.0, 13.8],
+  [13.5, 13.8],
+  [15.0, 13.8],
+  [16.5, 13.8],
 ] as const;
-const HORIZONTAL_DIVIDER_ROW = 7;
-const HORIZONTAL_GAPS = new Set([3, 4, 10, 16, 17]);
-const VERTICAL_GAP_ROWS = new Set([4]);
+const HORIZONTAL_DIVIDER_ROW = 10;
+const HORIZONTAL_GAPS = new Set([3, 4, 9, 10, 15, 16, 20, 21]);
+const VERTICAL_GAP_ROWS = new Set([5]);
 
 const STATE_COLOR: Record<AgentState, number> = {
   created: 0x9ca3af,
@@ -372,9 +397,9 @@ function buildFloor(layer: Container, textures: Record<AssetKey, Texture>): void
       if (ty === 0) {
         placeTile(layer, textures.wall_trim, tx, ty);
       } else if (
-        (tx >= 4 && tx <= 14 && ty >= 1 && ty <= 6) ||
-        (tx <= 6 && ty >= 8) ||
-        (tx >= 14 && ty >= 8)
+        (tx >= 4 && tx <= 19 && ty >= 1 && ty <= 9) ||
+        (tx <= 6 && ty >= 11) ||
+        (tx >= 18 && ty >= 11)
       ) {
         placeTile(layer, textures.floor_dark, tx, ty);
       } else {
@@ -390,8 +415,8 @@ function buildPartitions(layer: Container, textures: Record<AssetKey, Texture>):
     layer.addChild(drawOfficePartition(tx, HORIZONTAL_DIVIDER_ROW, "horizontal"));
   }
 
-  for (const tx of [4, 15]) {
-    for (let ty = 1; ty <= 6; ty += 1) {
+  for (const tx of [4, 20]) {
+    for (let ty = 1; ty <= 9; ty += 1) {
       if (VERTICAL_GAP_ROWS.has(ty)) continue;
       layer.addChild(drawOfficePartition(tx, ty, "vertical"));
     }
@@ -407,44 +432,45 @@ function buildDecor(layer: Container, textures: Record<AssetKey, Texture>): void
   placeTile(layer, textures.stool, 2, 5);
   placeTile(layer, textures.bookshelf, 0, 5);
 
-  // Main office: two complete desk rows, one workstation per registered agent.
-  addZoneSign(layer, "OPEN OFFICE", 9.5, 1.25, 0x5fc98f);
+  // Main office: three complete desk rows, one workstation per registered
+  // agent (14, matching AGENT_ROSTER — see WORKSTATIONS above).
+  addZoneSign(layer, "OPEN OFFICE", 11.5, 1.25, 0x5fc98f);
   for (const workstation of WORKSTATIONS) {
     placeTile(layer, textures.desk_monitor, workstation.desk[0], workstation.desk[1]);
   }
 
   // Pantry / records: refreshment point plus storage along the right wall.
-  addZoneSign(layer, "PANTRY", 17.5, 1.25, 0x8da9d6);
-  placeTile(layer, textures.bookshelf, 15, 2);
-  placeTile(layer, textures.water_cooler, 19, 2);
-  placeTile(layer, textures.table, 17, 4);
-  placeTile(layer, textures.stool, 16, 4);
-  placeTile(layer, textures.stool, 18, 4);
-  layer.addChild(drawPixelBin(19, 5));
+  addZoneSign(layer, "PANTRY", 22, 1.25, 0x8da9d6);
+  placeTile(layer, textures.bookshelf, 20, 2);
+  placeTile(layer, textures.water_cooler, 24, 2);
+  placeTile(layer, textures.table, 22, 4);
+  placeTile(layer, textures.stool, 21, 4);
+  placeTile(layer, textures.stool, 23, 4);
+  layer.addChild(drawPixelBin(24, 5));
 
   // Meeting corner: a three-tile conference table surrounded by seats.
-  addZoneSign(layer, "MEETING", 3.5, 8.25, 0xf3c66b);
-  for (const tx of [2, 3, 4]) placeTile(layer, textures.table, tx, 9);
-  for (const [tx, ty] of [[1, 9], [5, 9], [2, 10], [4, 10]]) {
+  addZoneSign(layer, "MEETING", 3.5, 11.25, 0xf3c66b);
+  for (const tx of [2, 3, 4]) placeTile(layer, textures.table, tx, 12);
+  for (const [tx, ty] of [[1, 12], [5, 12], [2, 13], [4, 13]]) {
     placeTile(layer, textures.stool, tx, ty);
   }
-  placeTile(layer, textures.noticeboard, 0, 9);
+  placeTile(layer, textures.noticeboard, 0, 12);
 
   // Lounge: softer spacing, a side table and the water-cooler conversation spot.
-  addZoneSign(layer, "LOUNGE", 16.5, 8.25, 0xa78bfa);
-  placeTile(layer, textures.table, 17, 10);
-  placeTile(layer, textures.stool, 16, 10);
-  placeTile(layer, textures.stool, 18, 10);
-  placeTile(layer, textures.bookshelf, 19, 10);
+  addZoneSign(layer, "LOUNGE", 21, 11.25, 0xa78bfa);
+  placeTile(layer, textures.table, 20, 13);
+  placeTile(layer, textures.stool, 19, 13);
+  placeTile(layer, textures.stool, 21, 13);
+  placeTile(layer, textures.bookshelf, 24, 13);
 
-  addCompanyMark(layer, 2, 6.3);
+  addCompanyMark(layer, 2, 8);
 
   for (const [tx, ty] of [
-    [0, 6],
-    [14, 6],
-    [15, 5],
-    [0, 10],
-    [14, 10],
+    [0, 8],
+    [20, 7],
+    [24, 8],
+    [0, 13],
+    [17, 13],
   ]) {
     layer.addChild(drawPottedPlant(tx, ty));
   }
