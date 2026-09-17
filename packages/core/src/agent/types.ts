@@ -34,6 +34,15 @@ export interface Agent {
   model?: string;
   credential?: CredentialRef;
   /**
+   * v0.8: which API backend a claude-code agent's process should use —
+   * "official" (or undefined) means the shared CredentialRouter pool as
+   * before; any other value is a key into this server's BACKEND_PROFILES
+   * registry, resolved to per-process env overrides at spawn time (see
+   * @ai-office/core/node's resolveBackendEnv). Meaningless for other
+   * runtimes today; only ClaudeCodeAdapter reads it.
+   */
+  backendProfile?: string;
+  /**
    * Capabilities this agent is *allowed* to be granted — a fixed roster
    * fact set at registration time (stand-in for a future "what can this
    * agent do" profile). Does not change while the agent is working.

@@ -3,6 +3,7 @@ import type { Task, TaskStatus } from "../task/types.js";
 import type { OfficeEvent } from "../events/types.js";
 import type { RuntimeAdapter, RuntimeEvent } from "../runtime/adapter.js";
 import type { WorkspaceGuard } from "../runtime/workspace-guard.js";
+import { BackendProfileError } from "../credentials/backend-profile.js";
 
 export interface SubmitTaskInput {
   description: string;
@@ -385,11 +386,20 @@ export class Orchestrator {
     } catch (err) {
       this.setTaskStatus(task, "failed");
       this.setAgentState(agent, "error", task.id);
+      // A BackendProfileError (see credentials/backend-profile.ts) is thrown
+      // by the adapter before any process was even spawned — a server
+      // configuration problem, not the provider rejecting a credential it
+      // was actually sent. Surfaced distinctly so an operator doesn't
+      // mistake "agent-02's backend profile isn't set up" for an ordinary
+      // task/logic failure, and so it never silently falls back to the
+      // official credential.
+      const backendProfileError = err instanceof BackendProfileError;
       this.broadcast({
         type: "task_failed",
         taskId: task.id,
         agentId: agent.id,
         reason: err instanceof Error ? err.message : String(err),
+        backendProfileError: backendProfileError || undefined,
       });
     } finally {
       this.workspaceLock.release(task.workspacePath);

@@ -7,3 +7,5 @@ export * from "./runtime/git-repo-guard.js";
 export * from "./credentials/sources.js";
 export * from "./credentials/router.js";
 export * from "./credentials/factory.js";
+export * from "./credentials/backend-resolver.js";
+export * from "./runtime/port-select.js";

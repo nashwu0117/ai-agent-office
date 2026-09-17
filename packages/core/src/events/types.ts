@@ -25,6 +25,8 @@ export type OfficeEvent =
       affectedPaths?: string[];
       /** True when this failure was caused by missing/invalid/exhausted provider credentials (see CredentialRouter), not an ordinary CLI/task failure. */
       authFailure?: boolean;
+      /** True when this failure is a misconfigured backendProfile (see BackendProfileError) — caught before any process was spawned, distinct from the provider rejecting a credential it was actually sent. */
+      backendProfileError?: boolean;
     }
   | { type: "goal_planning"; goalId: string; goal: string; workspacePath: string }
   | { type: "goal_planned"; goalId: string; goal: string; taskCount: number }
