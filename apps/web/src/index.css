@@ -778,6 +778,17 @@ input[type="checkbox"] {
   background: linear-gradient(90deg, rgba(243, 198, 107, 0.18), transparent 55%), var(--ink-850);
 }
 
+/* Blue, not amber/red — a backend profile error (v0.8) is a server-side
+   configuration gap caught before any process was spawned (unregistered
+   profile id, or missing env var), not the provider rejecting a credential
+   it was actually sent like .auth, and not a security incident like
+   .security. Fixable by the operator setting the missing env var(s). */
+.completion-card.backend {
+  border-color: var(--blue);
+  border-width: 3px 3px 3px 6px;
+  background: linear-gradient(90deg, rgba(141, 169, 214, 0.18), transparent 55%), var(--ink-850);
+}
+
 .completion-card .goal-card-dot {
   margin-right: 8px;
 }
