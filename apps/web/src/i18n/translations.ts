@@ -136,40 +136,63 @@ export interface Translations {
   available: string;
   unavailable: string;
 
+  // v0.21: cc-switch-style single-provider editor, replacing the old
+  // table-of-profiles-plus-add-form UI (BackendProfilesPanel.tsx).
   backendProfilesHeading: string;
-  backendProfilesHintBefore: string;
-  backendProfilesHintEm: string;
-  backendProfilesHintAfter: string;
+  providerEditorIntro: string;
+  providerListHeading: string;
   noBackendProfiles: string;
   colId: string;
   colLabel: string;
   colApiFormat: string;
-  colBaseUrlEnvVar: string;
-  colAuthTokenEnvVar: string;
-  colModelOverrideEnvVar: string;
   profileReady: string;
   profileMissingEnvVars: string;
-  editButton: string;
+  profileNeedsFormat: string;
   saveButton: string;
   savingButton: string;
-  cancelButton: string;
+  resetDraftButton: string;
+  saveSuccessNotice: string;
 
   labelFieldLabel: string;
+  labelFieldPlaceholder: string;
   apiFormatFieldLabel: string;
   baseUrlEnvVarFieldLabel: string;
   authTokenEnvVarFieldLabel: string;
-  modelOverrideEnvVarFieldLabel: string;
-  modelOverrideEnvVarPlaceholder: string;
-
-  addNewProfileHeading: string;
-  idFieldLabel: string;
-  idFieldPlaceholder: string;
-  labelFieldPlaceholder: string;
   baseUrlEnvVarPlaceholder: string;
   authTokenEnvVarPlaceholder: string;
-  newModelOverrideEnvVarPlaceholder: string;
-  addingButton: string;
-  addProfileButton: string;
+  modelOverrideEnvVarFieldLabel: string;
+  modelOverrideEnvVarPlaceholder: string;
+  legacyModelOverrideHeading: string;
+
+  // Login-based providers (Claude Code official, Codex, Cline, OpenCode) —
+  // no Base URL/API key fields, just login status + how-to-login text.
+  loginProviderNote: string;
+  loginCommandLabel: (command: string) => string;
+
+  roleModelMapHeading: string;
+  roleModelMapHint: string;
+  roleLabel: (role: string) => string;
+  roleModelPlaceholder: string;
+  fallbackModelFieldLabel: string;
+  fallbackModelHint: string;
+
+  customHeadersHeading: string;
+  customHeadersHint: string;
+  headerKeyPlaceholder: string;
+  headerValuePlaceholder: string;
+  addHeaderButton: string;
+  removeHeaderButton: string;
+
+  customBodyHeading: string;
+  customBodyHint: string;
+  customBodyPlaceholder: string;
+
+  previewHeading: string;
+  previewHint: string;
+
+  validationLabelRequired: string;
+  validationCustomBodyInvalidJson: string;
+  validationHeaderReserved: (name: string) => string;
 
   defaultBackendHeading: string;
   defaultBackendHint: string;
@@ -258,6 +281,7 @@ const RUNTIME_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
   opencode: "OpenCode",
   cline: "Cline",
+  codex: "Codex",
 };
 
 const API_FORMAT_LABELS: Record<string, string> = {
@@ -406,40 +430,62 @@ const en: Translations = {
   unavailable: "Unavailable",
 
   backendProfilesHeading: "Backend profiles",
-  backendProfilesHintBefore: "Each profile points a claude-code agent at a different API backend. Only the environment variable ",
-  backendProfilesHintEm: "names",
-  backendProfilesHintAfter:
-    " are configured here — set the actual base URL/token as environment variables on this server before an agent using this profile can run a task.",
+  providerEditorIntro:
+    "Pick a provider on the left to edit it in full — name, Base URL, API key, upstream format, per-role model mapping, fallback model, custom headers/body, and a live preview of what this actually resolves to. Base URL/API key fields never show a stored secret back to you: leave either blank to keep it unchanged, or type/paste a new env var name or real value to overwrite it.",
+  providerListHeading: "Providers",
   noBackendProfiles: "No backend profiles registered yet.",
   colId: "Id",
   colLabel: "Label",
   colApiFormat: "API format",
-  colBaseUrlEnvVar: "Base URL env var",
-  colAuthTokenEnvVar: "Auth token env var",
-  colModelOverrideEnvVar: "Model override env var",
   profileReady: "Ready",
   profileMissingEnvVars: "Missing env var(s)",
-  editButton: "Edit",
+  profileNeedsFormat: "Needs format selection",
   saveButton: "Save",
   savingButton: "Saving…",
-  cancelButton: "Cancel",
+  resetDraftButton: "Reset unsaved changes",
+  saveSuccessNotice: "Saved.",
 
   labelFieldLabel: "Label",
-  apiFormatFieldLabel: "API format",
-  baseUrlEnvVarFieldLabel: "Base URL environment variable name",
-  authTokenEnvVarFieldLabel: "Auth token environment variable name",
-  modelOverrideEnvVarFieldLabel: "Model override environment variable name (optional)",
-  modelOverrideEnvVarPlaceholder: "optional, e.g. AI_OFFICE_NVIDIA_MODEL",
-
-  addNewProfileHeading: "Add a new backend profile",
-  idFieldLabel: "Id",
-  idFieldPlaceholder: "e.g. my-provider",
   labelFieldPlaceholder: "e.g. My Provider API",
-  baseUrlEnvVarPlaceholder: "e.g. AI_OFFICE_BACKEND_MY_PROVIDER_BASE_URL",
-  authTokenEnvVarPlaceholder: "e.g. AI_OFFICE_BACKEND_MY_PROVIDER_AUTH_TOKEN",
-  newModelOverrideEnvVarPlaceholder: "optional — e.g. AI_OFFICE_BACKEND_MY_PROVIDER_MODEL",
-  addingButton: "Adding…",
-  addProfileButton: "Add profile",
+  apiFormatFieldLabel: "API format",
+  baseUrlEnvVarFieldLabel: "Base URL",
+  authTokenEnvVarFieldLabel: "API key",
+  baseUrlEnvVarPlaceholder: "leave blank to keep current — or type an env var name / paste a real URL",
+  authTokenEnvVarPlaceholder: "leave blank to keep current — or type an env var name / paste a real key",
+  modelOverrideEnvVarFieldLabel: "Legacy blanket model override env var (optional)",
+  modelOverrideEnvVarPlaceholder: "optional, e.g. AI_OFFICE_NVIDIA_MODEL",
+  legacyModelOverrideHeading: "Legacy override (pre-v0.21)",
+
+  loginProviderNote:
+    "This provider authenticates through its own CLI's login session, not a Base URL/API key pair — there's nothing to edit here beyond checking whether that login is in place.",
+  loginCommandLabel: (command) => `Run ${command} in a terminal to sign in.`,
+
+  roleModelMapHeading: "Role → model mapping",
+  roleModelMapHint:
+    "When this agent's CLI requests each model family, send this upstream model id instead. Sonnet/Opus/Haiku/Fable are matched against the model family the CLI actually requested; Subagent has no reliable wire-level signal of its own, so it's used only as a catch-all for a request that matches none of the other four — see the field's own note. Leave a role blank to fall through to Fallback model below.",
+  roleLabel: (role) => ({ sonnet: "Sonnet", opus: "Opus", fable: "Fable", haiku: "Haiku", subagent: "Subagent (best-effort catch-all)" })[role] ?? role,
+  roleModelPlaceholder: "e.g. meta/llama-3.1-70b-instruct",
+  fallbackModelFieldLabel: "Fallback model",
+  fallbackModelHint: "Used when a request's role has no mapping above. Leave blank to fall through to the legacy override below, then to no rewrite at all.",
+
+  customHeadersHeading: "Custom headers",
+  customHeadersHint:
+    "Extra static headers this upstream requires beyond the API key above (e.g. a pinned API version). Can't override x-api-key, authorization, or host — those always come from the API key field.",
+  headerKeyPlaceholder: "Header name",
+  headerValuePlaceholder: "Header value",
+  addHeaderButton: "Add header",
+  removeHeaderButton: "Remove",
+
+  customBodyHeading: "Custom body override (JSON)",
+  customBodyHint: "A JSON object shallow-merged into every outgoing request body for this provider, after model resolution.",
+  customBodyPlaceholder: '{\n  "extra_param": true\n}',
+
+  previewHeading: "Live preview",
+  previewHint: "What this profile resolves to — secret values are never shown, only whether they're set.",
+
+  validationLabelRequired: "Label is required.",
+  validationCustomBodyInvalidJson: "Custom body override must be valid JSON (a plain object, e.g. { \"key\": \"value\" }).",
+  validationHeaderReserved: (name) => `"${name}" can't be a custom header — it's set from the API key field.`,
 
   defaultBackendHeading: "Default backend for unassigned agents",
   defaultBackendHint:
@@ -596,40 +642,61 @@ const zhTW: Translations = {
   unavailable: "不可用",
 
   backendProfilesHeading: "後端設定檔",
-  backendProfilesHintBefore: "每個設定檔會指定 claude-code 代理使用的 API 後端。這裡只設定環境變數的",
-  backendProfilesHintEm: "名稱",
-  backendProfilesHintAfter:
-    ";在代理使用此設定檔執行任務之前,請先在這台伺服器上,把實際的 Base URL/權杖設為對應的環境變數。",
+  providerEditorIntro:
+    "在左側選一個供應商,即可在這裡完整編輯它:名稱、Base URL、API 金鑰、上游格式、角色→模型對應、Fallback 模型、自訂 headers/body,以及即時預覽。Base URL/API 金鑰欄位絕不會把已存的密文顯示回來:留空表示保持不變,輸入新的環境變數名稱或直接貼上新值即可覆寫。",
+  providerListHeading: "供應商",
   noBackendProfiles: "尚未註冊任何後端設定檔。",
   colId: "ID",
   colLabel: "名稱",
   colApiFormat: "API 格式",
-  colBaseUrlEnvVar: "Base URL 環境變數",
-  colAuthTokenEnvVar: "驗證權杖環境變數",
-  colModelOverrideEnvVar: "模型覆寫環境變數",
   profileReady: "就緒",
   profileMissingEnvVars: "缺少環境變數",
-  editButton: "編輯",
+  profileNeedsFormat: "尚未選擇格式",
   saveButton: "儲存",
   savingButton: "儲存中…",
-  cancelButton: "取消",
+  resetDraftButton: "還原未儲存的變更",
+  saveSuccessNotice: "已儲存。",
 
   labelFieldLabel: "名稱",
-  apiFormatFieldLabel: "API 格式",
-  baseUrlEnvVarFieldLabel: "Base URL 環境變數名稱",
-  authTokenEnvVarFieldLabel: "驗證權杖環境變數名稱",
-  modelOverrideEnvVarFieldLabel: "模型覆寫環境變數名稱(選填)",
-  modelOverrideEnvVarPlaceholder: "選填,例如 AI_OFFICE_NVIDIA_MODEL",
-
-  addNewProfileHeading: "新增後端設定檔",
-  idFieldLabel: "ID",
-  idFieldPlaceholder: "例如 my-provider",
   labelFieldPlaceholder: "例如 My Provider API",
-  baseUrlEnvVarPlaceholder: "例如 AI_OFFICE_BACKEND_MY_PROVIDER_BASE_URL",
-  authTokenEnvVarPlaceholder: "例如 AI_OFFICE_BACKEND_MY_PROVIDER_AUTH_TOKEN",
-  newModelOverrideEnvVarPlaceholder: "選填 — 例如 AI_OFFICE_BACKEND_MY_PROVIDER_MODEL",
-  addingButton: "新增中…",
-  addProfileButton: "新增設定檔",
+  apiFormatFieldLabel: "API 格式",
+  baseUrlEnvVarFieldLabel: "Base URL",
+  authTokenEnvVarFieldLabel: "API 金鑰",
+  baseUrlEnvVarPlaceholder: "留空 = 保持不變 — 或輸入環境變數名稱/直接貼上真實網址",
+  authTokenEnvVarPlaceholder: "留空 = 保持不變 — 或輸入環境變數名稱/直接貼上真實金鑰",
+  modelOverrideEnvVarFieldLabel: "舊版整體模型覆寫環境變數(選填)",
+  modelOverrideEnvVarPlaceholder: "選填,例如 AI_OFFICE_NVIDIA_MODEL",
+  legacyModelOverrideHeading: "舊版覆寫機制(v0.21 前)",
+
+  loginProviderNote: "這個供應商是透過自己 CLI 的登入工作階段驗證,不是 Base URL/API 金鑰組合——這裡沒有欄位可編輯,只能確認登入狀態。",
+  loginCommandLabel: (command) => `在終端機執行 ${command} 以登入。`,
+
+  roleModelMapHeading: "角色 → 模型對應",
+  roleModelMapHint:
+    "當這個代理的 CLI 請求各模型家族時,改送出這個上游模型 ID。Sonnet/Opus/Haiku/Fable 是依 CLI 實際請求的模型家族比對;Subagent 沒有可靠的線路層訊號,只會在請求不符合前四者時當作後備使用——詳見欄位本身的說明。留空的角色會落到下方的 Fallback 模型。",
+  roleLabel: (role) =>
+    ({ sonnet: "Sonnet", opus: "Opus", fable: "Fable", haiku: "Haiku", subagent: "Subagent(盡力而為的後備)" })[role] ?? role,
+  roleModelPlaceholder: "例如 meta/llama-3.1-70b-instruct",
+  fallbackModelFieldLabel: "Fallback 模型",
+  fallbackModelHint: "當某個角色在上方沒有對應時使用。留空則落到下方的舊版覆寫,再落到完全不改寫。",
+
+  customHeadersHeading: "自訂 Headers",
+  customHeadersHint: "上游除了上方 API 金鑰之外還需要的額外固定 headers(例如指定的 API 版本)。不能覆寫 x-api-key、authorization 或 host——這些一律來自 API 金鑰欄位。",
+  headerKeyPlaceholder: "Header 名稱",
+  headerValuePlaceholder: "Header 值",
+  addHeaderButton: "新增 header",
+  removeHeaderButton: "移除",
+
+  customBodyHeading: "自訂 Body 覆寫(JSON)",
+  customBodyHint: "在模型解析完成後,淺層合併進這個供應商每一次請求 body 的 JSON 物件。",
+  customBodyPlaceholder: '{\n  "extra_param": true\n}',
+
+  previewHeading: "即時預覽",
+  previewHint: "這組設定實際會解析成什麼——密文值一律不顯示,只顯示是否已設定。",
+
+  validationLabelRequired: "名稱為必填。",
+  validationCustomBodyInvalidJson: "自訂 Body 覆寫必須是合法 JSON(一個物件,例如 { \"key\": \"value\" })。",
+  validationHeaderReserved: (name) => `「${name}」不能作為自訂 header——它是由 API 金鑰欄位設定的。`,
 
   defaultBackendHeading: "未指定代理的預設後端",
   defaultBackendHint:

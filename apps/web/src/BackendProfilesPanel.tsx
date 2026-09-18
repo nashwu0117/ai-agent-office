@@ -1,13 +1,6 @@
-import { useState } from "react";
-import type { Agent, BackendProfileClientInfo, CredentialSourceStatus } from "@ai-office/core";
-import {
-  createBackendProfile,
-  deleteBackendProfile,
-  fetchBackendProfileModels,
-  setAgentBackendProfile,
-  setDefaultBackendProfile,
-  updateBackendProfile,
-} from "./ws/client.js";
+import { useEffect, useMemo, useState } from "react";
+import { AGENT_ROLES, type Agent, type AgentRole, type BackendProfileClientInfo, type CredentialSourceStatus } from "@ai-office/core";
+import { setAgentBackendProfile, setDefaultBackendProfile, updateBackendProfile } from "./ws/client.js";
 import { useLanguage } from "./i18n/language-context.js";
 
 // v0.10: Credential / Backend Profile management panel — the UI Part A of
@@ -17,19 +10,103 @@ import { useLanguage } from "./i18n/language-context.js";
 // id/label/apiFormat/env-var-*names* (never the values those env vars hold —
 // see BackendProfileClientInfo's own field comments).
 //
-// v0.15: the base URL / auth token / model fields still only ever end up
-// holding an env var *name* in backend-profiles.json, but the operator is no
-// longer required to already know that indirection to use this form —
-// pasting the real value is accepted too and gets filed into
-// apps/server/.env.local under an auto-derived name server-side (see
-// backend-profile-store.ts's resolveEnvVarField). Typing the name directly
-// still works exactly as before, for anyone who already has the env var set
-// up.
+// v0.21: the "Backend profiles" section was rebuilt from a table of
+// profiles each hiding its own simplified edit form behind an "Edit"
+// button, into a cc-switch-style single-provider editor — pick a provider
+// on the left, edit everything about it on the right in one screen,
+// including the new per-role model mapping, custom headers/body, and a
+// live (secret-masked) preview. This replaces that old table+add-form UI
+// entirely rather than living alongside it (see the v0.21 build prompt's
+// explicit "no two out-of-sync edit entry points" requirement) — there is
+// no more "Add profile" UI either (profiles are still only ever created by
+// editing DEFAULT_BACKEND_PROFILES in apps/server/src/index.ts, per that
+// prompt's "明確不做" section).
+//
+// Officially-logged-in providers (Claude Code, OpenCode, Codex, Cline) are
+// folded into the same provider list so there's one place to look, but
+// their detail view only ever shows login status + how-to-login text —
+// they have no Base URL/API key/apiFormat of their own to edit (see
+// LOGIN_PROVIDERS below).
 
 const API_FORMAT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "anthropic", label: "Anthropic Messages API" },
   { value: "openai-chat-completions", label: "OpenAI Chat Completions (translated)" },
+  { value: "unset", label: "— not selected yet —" },
 ];
+
+interface LoginProvider {
+  id: string;
+  labelEn: string;
+  labelZh: string;
+  credentialSourceId: string;
+  loginCommand: string;
+}
+
+// v0.21: the spec's own examples name Claude Code/Codex/Cline explicitly as
+// "official login" providers; OpenCode authenticates the exact same way
+// (its own CLI-native session, no Base URL/API key of its own — see
+// packages/core/src/credentials/factory.ts's opencode-cli-session source)
+// so it's included here too rather than left out of the unified list.
+const LOGIN_PROVIDERS: LoginProvider[] = [
+  {
+    id: "official-claude-code",
+    labelEn: "Claude Code (official)",
+    labelZh: "Claude Code 官方",
+    credentialSourceId: "claude-code-cli-session",
+    loginCommand: "claude auth login",
+  },
+  {
+    id: "official-opencode",
+    labelEn: "OpenCode CLI",
+    labelZh: "OpenCode CLI",
+    credentialSourceId: "opencode-cli-session",
+    loginCommand: "opencode auth login",
+  },
+  {
+    id: "official-codex",
+    labelEn: "Codex CLI",
+    labelZh: "Codex CLI",
+    credentialSourceId: "codex-cli-session",
+    loginCommand: "codex login",
+  },
+  {
+    id: "official-cline",
+    labelEn: "Cline CLI",
+    labelZh: "Cline CLI",
+    credentialSourceId: "cline-key-primary",
+    loginCommand: "cline auth (or set CLINE_API_KEY)",
+  },
+];
+
+interface ProfileDraft {
+  label: string;
+  apiFormat: string;
+  baseUrlInput: string;
+  authTokenInput: string;
+  modelOverrideInput: string;
+  roleModelMap: Record<AgentRole, string>;
+  fallbackModel: string;
+  headers: Array<{ key: string; value: string }>;
+  customBodyText: string;
+}
+
+const EMPTY_ROLE_MAP: Record<AgentRole, string> = { sonnet: "", opus: "", fable: "", haiku: "", subagent: "" };
+
+function draftFromProfile(p: BackendProfileClientInfo): ProfileDraft {
+  return {
+    label: p.label,
+    apiFormat: p.apiFormat,
+    baseUrlInput: "",
+    authTokenInput: "",
+    modelOverrideInput: p.modelOverrideEnvVar ?? "",
+    roleModelMap: { ...EMPTY_ROLE_MAP, ...(p.roleModelMap ?? {}) },
+    fallbackModel: p.fallbackModel ?? "",
+    headers: Object.entries(p.customHeaders ?? {}).map(([key, value]) => ({ key, value })),
+    customBodyText: p.customBodyOverride && Object.keys(p.customBodyOverride).length > 0 ? JSON.stringify(p.customBodyOverride, null, 2) : "",
+  };
+}
+
+const RESERVED_HEADER_NAMES = new Set(["x-api-key", "authorization", "host"]);
 
 interface Props {
   open: boolean;
@@ -41,162 +118,108 @@ interface Props {
   agents: Agent[];
 }
 
-interface NewProfileForm {
-  id: string;
-  label: string;
-  apiFormat: string;
-  baseUrlEnvVar: string;
-  authTokenEnvVar: string;
-  modelOverrideEnvVar: string;
-}
-
-const EMPTY_NEW_PROFILE: NewProfileForm = {
-  id: "",
-  label: "",
-  apiFormat: "anthropic",
-  baseUrlEnvVar: "",
-  authTokenEnvVar: "",
-  modelOverrideEnvVar: "",
-};
-
-export function BackendProfilesPanel({
-  open,
-  onClose,
-  credentialStatuses,
-  backendProfiles,
-  defaultBackendProfile,
-  agents,
-}: Props) {
+export function BackendProfilesPanel({ open, onClose, credentialStatuses, backendProfiles, defaultBackendProfile, agents }: Props) {
   const { t } = useLanguage();
-  const [newProfile, setNewProfile] = useState<NewProfileForm>(EMPTY_NEW_PROFILE);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<NewProfileForm | null>(null);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const masterCliSession = credentialStatuses.find((source) => source.id === "claude-code-cli-session");
 
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigningAgentId, setAssigningAgentId] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [settingDefault, setSettingDefault] = useState(false);
-  const masterCliSession = credentialStatuses.find((source) => source.id === "claude-code-cli-session");
 
-  // v0.15: "what model ids can this profile's own key actually see?" — a
-  // real call to the provider's own /models endpoint (see index.ts).
-  // Accordion, not per-profile: fetching a different profile's list replaces
-  // whatever was showing, so the table doesn't accumulate a long chip-list
-  // under every profile you've ever checked. Clicking "Fetch models" again
-  // on the one already open toggles it closed instead of re-fetching.
-  const [modelsState, setModelsState] = useState<{
-    id: string;
-    status: "loading" | "error" | "done";
-    models?: string[];
-    error?: string;
-  } | null>(null);
+  // v0.21: combined list — login providers first, then every BackendProfile.
+  const listItems = useMemo(
+    () => [
+      ...LOGIN_PROVIDERS.map((p) => ({ kind: "login" as const, provider: p })),
+      ...backendProfiles.map((p) => ({ kind: "profile" as const, profile: p })),
+    ],
+    [backendProfiles]
+  );
 
-  async function handleFetchModels(id: string) {
-    if (modelsState?.id === id) {
-      setModelsState(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (selectedId && listItems.some((item) => (item.kind === "login" ? item.provider.id : item.profile.id) === selectedId)) return;
+    setSelectedId(listItems[0] ? (listItems[0].kind === "login" ? listItems[0].provider.id : listItems[0].profile.id) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, listItems]);
+
+  const selectedProfile = backendProfiles.find((p) => p.id === selectedId);
+  const selectedLogin = LOGIN_PROVIDERS.find((p) => p.id === selectedId);
+
+  const [draft, setDraft] = useState<ProfileDraft | null>(null);
+  useEffect(() => {
+    setDraft(selectedProfile ? draftFromProfile(selectedProfile) : null);
+    setSaveError(null);
+  }, [selectedProfile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function resetDraft() {
+    if (selectedProfile) setDraft(draftFromProfile(selectedProfile));
+    setSaveError(null);
+    setSaved(false);
+  }
+
+  async function handleSave() {
+    if (!selectedProfile || !draft) return;
+    setSaved(false);
+    const label = draft.label.trim();
+    if (!label) {
+      setSaveError(t.validationLabelRequired);
       return;
     }
-    setModelsState({ id, status: "loading" });
-    try {
-      const models = await fetchBackendProfileModels(id);
-      setModelsState({ id, status: "done", models });
-    } catch (err) {
-      setModelsState({ id, status: "error", error: err instanceof Error ? err.message : String(err) });
+    for (const h of draft.headers) {
+      const key = h.key.trim();
+      if (!key) continue;
+      if (RESERVED_HEADER_NAMES.has(key.toLowerCase())) {
+        setSaveError(t.validationHeaderReserved(key));
+        return;
+      }
     }
-  }
-
-  // v0.15: click a fetched model id to set it live — updateBackendProfile's
-  // modelOverrideEnvVar already auto-provisions a real value (see
-  // backend-profile-store.ts's resolveEnvVarField), so this is the same
-  // save path as typing one into the edit form, just one click instead of a
-  // copy/paste round trip through apps/server/.env.local.
-  const [settingModelFor, setSettingModelFor] = useState<string | null>(null);
-  const [setModelError, setSetModelError] = useState<{ id: string; message: string } | null>(null);
-
-  async function handleSetModel(id: string, model: string) {
-    setSettingModelFor(`${id}:${model}`);
-    setSetModelError(null);
-    try {
-      await updateBackendProfile(id, { modelOverrideEnvVar: model });
-    } catch (err) {
-      setSetModelError({ id, message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setSettingModelFor(null);
+    let customBodyOverride: Record<string, unknown> = {};
+    if (draft.customBodyText.trim()) {
+      try {
+        const parsed = JSON.parse(draft.customBodyText);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
+        customBodyOverride = parsed;
+      } catch {
+        setSaveError(t.validationCustomBodyInvalidJson);
+        return;
+      }
     }
-  }
 
-  // v0.15: server refuses (409) if any agent is still pinned to the profile
-  // — surfaced inline per-row rather than a blocking confirm dialog, since
-  // "why won't this delete" is more useful here than "are you sure".
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
-
-  async function handleDelete(id: string) {
-    setDeletingId(id);
-    setDeleteError(null);
-    try {
-      await deleteBackendProfile(id);
-    } catch (err) {
-      setDeleteError({ id, message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setDeletingId(null);
+    const roleModelMap: Record<string, string> = {};
+    for (const role of AGENT_ROLES) {
+      const v = draft.roleModelMap[role]?.trim();
+      if (v) roleModelMap[role] = v;
     }
-  }
-
-  if (!open) return null;
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    setCreateError(null);
-    setCreating(true);
-    try {
-      await createBackendProfile({
-        ...newProfile,
-        modelOverrideEnvVar: newProfile.modelOverrideEnvVar.trim() || undefined,
-      });
-      setNewProfile(EMPTY_NEW_PROFILE);
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCreating(false);
+    const customHeaders: Record<string, string> = {};
+    for (const h of draft.headers) {
+      const key = h.key.trim();
+      if (key) customHeaders[key] = h.value;
     }
-  }
 
-  function startEdit(profile: BackendProfileClientInfo) {
-    setEditingId(profile.id);
-    setEditDraft({
-      id: profile.id,
-      label: profile.label,
-      apiFormat: profile.apiFormat,
-      baseUrlEnvVar: profile.baseUrlEnvVar,
-      authTokenEnvVar: profile.authTokenEnvVar,
-      modelOverrideEnvVar: profile.modelOverrideEnvVar ?? "",
-    });
-    setEditError(null);
-  }
-
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editDraft) return;
-    setEditError(null);
     setSaving(true);
+    setSaveError(null);
     try {
-      await updateBackendProfile(editDraft.id, {
-        label: editDraft.label,
-        apiFormat: editDraft.apiFormat,
-        baseUrlEnvVar: editDraft.baseUrlEnvVar,
-        authTokenEnvVar: editDraft.authTokenEnvVar,
-        modelOverrideEnvVar: editDraft.modelOverrideEnvVar.trim() || undefined,
+      await updateBackendProfile(selectedProfile.id, {
+        label,
+        apiFormat: draft.apiFormat,
+        ...(draft.baseUrlInput.trim() ? { baseUrlEnvVar: draft.baseUrlInput.trim() } : {}),
+        ...(draft.authTokenInput.trim() ? { authTokenEnvVar: draft.authTokenInput.trim() } : {}),
+        modelOverrideEnvVar: draft.modelOverrideInput.trim() || undefined,
+        roleModelMap,
+        fallbackModel: draft.fallbackModel.trim() || undefined,
+        customHeaders,
+        customBodyOverride,
       });
-      setEditingId(null);
-      setEditDraft(null);
+      setDraft((d) => (d ? { ...d, baseUrlInput: "", authTokenInput: "" } : d));
+      setSaved(true);
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : String(err));
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -224,6 +247,13 @@ export function BackendProfilesPanel({
     } finally {
       setAssigningAgentId(null);
     }
+  }
+
+  if (!open) return null;
+
+  function statusFor(p: BackendProfileClientInfo): { text: string; className: string } {
+    if (p.apiFormat === "unset") return { text: t.profileNeedsFormat, className: "bp-status-warn" };
+    return p.available ? { text: t.profileReady, className: "bp-status-ok" } : { text: t.profileMissingEnvVars, className: "bp-status-bad" };
   }
 
   return (
@@ -302,271 +332,226 @@ export function BackendProfilesPanel({
 
         <section className="bp-section" aria-labelledby="bp-profiles-heading">
           <h3 id="bp-profiles-heading">{t.backendProfilesHeading}</h3>
-          <p className="bp-hint">
-            Each profile points a claude-code agent at a different API backend. You can type either an env var name
-            (e.g. <code>AI_OFFICE_BACKEND_MY_PROVIDER_BASE_URL</code>) or paste the real base URL/key/model directly
-            — pasting a real value stores it in apps/server/.env.local automatically and this table only ever shows
-            the resulting variable name, never the value itself.
-          </p>
-          {backendProfiles.length === 0 ? (
-            <div className="bp-empty">{t.noBackendProfiles}</div>
-          ) : (
-            <div className="bp-table-wrap">
-              <table className="bp-table">
-                <thead>
-                  <tr>
-                    <th>{t.colId}</th>
-                    <th>{t.colLabel}</th>
-                    <th>{t.colApiFormat}</th>
-                    <th>{t.colBaseUrlEnvVar}</th>
-                    <th>{t.colAuthTokenEnvVar}</th>
-                    <th>{t.colModelOverrideEnvVar}</th>
-                    <th>{t.colStatus}</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                {backendProfiles.map((p) =>
-                  editingId === p.id && editDraft ? (
-                    <tr key={p.id}>
-                      <td colSpan={8}>
-                        <form className="bp-edit-form" onSubmit={handleSaveEdit}>
-                          <input
-                            aria-label={t.labelFieldLabel}
-                            value={editDraft.label}
-                            onChange={(e) => setEditDraft({ ...editDraft, label: e.target.value })}
-                            required
-                          />
-                          <select
-                            aria-label={t.apiFormatFieldLabel}
-                            value={editDraft.apiFormat}
-                            onChange={(e) => setEditDraft({ ...editDraft, apiFormat: e.target.value })}
-                          >
-                            {API_FORMAT_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            className="bp-field-wide"
-                            aria-label={t.baseUrlEnvVarFieldLabel}
-                            value={editDraft.baseUrlEnvVar}
-                            onChange={(e) => setEditDraft({ ...editDraft, baseUrlEnvVar: e.target.value })}
-                            required
-                          />
-                          <input
-                            className="bp-field-wide"
-                            aria-label={t.authTokenEnvVarFieldLabel}
-                            value={editDraft.authTokenEnvVar}
-                            onChange={(e) => setEditDraft({ ...editDraft, authTokenEnvVar: e.target.value })}
-                            required
-                          />
-                          <input
-                            className="bp-field-wide"
-                            aria-label={t.modelOverrideEnvVarFieldLabel}
-                            placeholder={t.modelOverrideEnvVarPlaceholder}
-                            value={editDraft.modelOverrideEnvVar}
-                            onChange={(e) => setEditDraft({ ...editDraft, modelOverrideEnvVar: e.target.value })}
-                          />
-                          <button type="submit" disabled={saving}>
-                            {saving ? t.savingButton : t.saveButton}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditDraft(null);
-                              setEditError(null);
-                            }}
-                          >
-                            {t.cancelButton}
-                          </button>
-                          {editError && (
-                            <div className="bp-form-error" role="alert">
-                              {editError}
-                            </div>
-                          )}
-                        </form>
-                      </td>
-                    </tr>
-                  ) : (
-                    <>
-                      <tr key={p.id}>
-                        <td>{p.id}</td>
-                        <td>{p.label}</td>
-                        <td>{API_FORMAT_OPTIONS.find((opt) => opt.value === p.apiFormat)?.label ?? p.apiFormat}</td>
-                        <td>
-                          <code>{p.baseUrlEnvVar}</code>
-                        </td>
-                        <td>
-                          <code>{p.authTokenEnvVar}</code>
-                        </td>
-                        <td className="bp-model-cell">
-                          {p.modelOverrideEnvVar ? <code>{p.modelOverrideEnvVar}</code> : <span className="bp-hint">—</span>}
-                          <button
-                            type="button"
-                            className="bp-fetch-models-btn"
-                            disabled={!p.available || (modelsState?.id === p.id && modelsState.status === "loading")}
-                            title={p.available ? "Ask this profile's own provider which model ids its key can see" : "Set its env vars first"}
-                            onClick={() => handleFetchModels(p.id)}
-                          >
-                            {modelsState?.id === p.id && modelsState.status === "loading"
-                              ? "Fetching…"
-                              : modelsState?.id === p.id
-                                ? "Hide models"
-                                : "Fetch models"}
-                          </button>
-                        </td>
-                        <td>
-                          <span className={`bp-status-pill ${p.available ? "bp-status-ok" : "bp-status-bad"}`}>
-                            {p.available ? t.profileReady : t.profileMissingEnvVars}
-                          </span>
-                        </td>
-                        <td className="bp-row-actions">
-                          <button type="button" onClick={() => startEdit(p)}>
-                            {t.editButton}
-                          </button>
-                          <button type="button" disabled={deletingId === p.id} onClick={() => handleDelete(p.id)}>
-                            {deletingId === p.id ? "Deleting…" : "Delete"}
-                          </button>
-                        </td>
-                      </tr>
-                      {deleteError?.id === p.id && (
-                        <tr key={`${p.id}-delete-error`}>
-                          <td colSpan={8}>
-                            <div className="bp-form-error" role="alert">
-                              {deleteError.message}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      {modelsState?.id === p.id && (
-                        <tr key={`${p.id}-models`}>
-                          <td colSpan={8} className="bp-models-cell">
-                            {modelsState.status === "error" && (
-                              <div className="bp-form-error" role="alert">
-                                {modelsState.error}
-                              </div>
-                            )}
-                            {modelsState.status === "done" && (
-                              <>
-                                {modelsState.models!.length === 0 ? (
-                                  <span className="bp-hint">Provider returned an empty model list.</span>
-                                ) : (
-                                  <>
-                                    <span className="bp-hint">
-                                      Live from the provider — click one to set it as {p.id}'s model right now (writes it to
-                                      apps/server/.env.local and takes effect immediately, no restart):
-                                    </span>
-                                    <div className="bp-model-list">
-                                      {modelsState.models!.map((m) => {
-                                        const isCurrent = m === p.currentModel;
-                                        return (
-                                          <button
-                                            key={m}
-                                            type="button"
-                                            className={isCurrent ? "bp-model-current" : ""}
-                                            disabled={settingModelFor === `${p.id}:${m}`}
-                                            title={isCurrent ? "Currently set" : `Set ${p.id}'s model to ${m}`}
-                                            onClick={() => handleSetModel(p.id, m)}
-                                          >
-                                            {settingModelFor === `${p.id}:${m}` ? "Setting…" : m}
-                                            {isCurrent ? " ✓" : ""}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                    {setModelError?.id === p.id && (
-                                      <div className="bp-form-error" role="alert">
-                                        {setModelError.message}
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  )
-                )}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <p className="bp-hint">{t.providerEditorIntro}</p>
 
-          <form className="bp-new-form" onSubmit={handleCreate} aria-label={t.addNewProfileHeading}>
-            <h4>{t.addNewProfileHeading}</h4>
-            <div className="bp-new-form-grid">
-              <label>
-                {t.idFieldLabel}
-                <input
-                  placeholder={t.idFieldPlaceholder}
-                  value={newProfile.id}
-                  onChange={(e) => setNewProfile({ ...newProfile, id: e.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                {t.labelFieldLabel}
-                <input
-                  placeholder={t.labelFieldPlaceholder}
-                  value={newProfile.label}
-                  onChange={(e) => setNewProfile({ ...newProfile, label: e.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                {t.apiFormatFieldLabel}
-                <select
-                  value={newProfile.apiFormat}
-                  onChange={(e) => setNewProfile({ ...newProfile, apiFormat: e.target.value })}
+          <div className="bp-provider-editor">
+            <nav className="bp-provider-list" aria-label={t.providerListHeading}>
+              {listItems.map((item) => {
+                const id = item.kind === "login" ? item.provider.id : item.profile.id;
+                const label = item.kind === "login" ? (t.lang === "zh-TW" ? item.provider.labelZh : item.provider.labelEn) : item.profile.label;
+                const status =
+                  item.kind === "login"
+                    ? credentialStatuses.find((s) => s.id === item.provider.credentialSourceId)?.available
+                    : statusFor(item.profile);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`bp-provider-list-item ${selectedId === id ? "bp-provider-list-item-active" : ""}`}
+                    onClick={() => setSelectedId(id)}
+                    aria-current={selectedId === id}
+                  >
+                    <span className="bp-provider-list-item-label">{label}</span>
+                    {item.kind === "login" ? (
+                      <span className={`bp-status-pill ${status ? "bp-status-ok" : "bp-status-bad"}`}>
+                        {status ? t.available : t.unavailable}
+                      </span>
+                    ) : (
+                      <span className={`bp-status-pill ${(status as { className: string }).className}`}>
+                        {(status as { text: string }).text}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="bp-provider-detail">
+              {selectedLogin && (
+                <div className="bp-login-detail">
+                  <h4>{t.lang === "zh-TW" ? selectedLogin.labelZh : selectedLogin.labelEn}</h4>
+                  <p className="bp-hint">{t.loginProviderNote}</p>
+                  <span
+                    className={`bp-status-pill ${
+                      credentialStatuses.find((s) => s.id === selectedLogin.credentialSourceId)?.available ? "bp-status-ok" : "bp-status-bad"
+                    }`}
+                  >
+                    {credentialStatuses.find((s) => s.id === selectedLogin.credentialSourceId)?.available
+                      ? t.cliSessionConfigured
+                      : t.cliSessionUnavailable}
+                  </span>
+                  <p>{t.loginCommandLabel(selectedLogin.loginCommand)}</p>
+                </div>
+              )}
+
+              {selectedProfile && draft && (
+                <form
+                  className="bp-provider-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleSave();
+                  }}
                 >
-                  {API_FORMAT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="bp-field-wide">
-                {t.baseUrlEnvVarFieldLabel}
-                <input
-                  placeholder={t.baseUrlEnvVarPlaceholder}
-                  value={newProfile.baseUrlEnvVar}
-                  onChange={(e) => setNewProfile({ ...newProfile, baseUrlEnvVar: e.target.value })}
-                  required
-                />
-              </label>
-              <label className="bp-field-wide">
-                {t.authTokenEnvVarFieldLabel}
-                <input
-                  placeholder={t.authTokenEnvVarPlaceholder}
-                  value={newProfile.authTokenEnvVar}
-                  onChange={(e) => setNewProfile({ ...newProfile, authTokenEnvVar: e.target.value })}
-                  required
-                />
-              </label>
-              <label className="bp-field-wide">
-                {t.modelOverrideEnvVarFieldLabel}
-                <input
-                  placeholder={t.newModelOverrideEnvVarPlaceholder}
-                  value={newProfile.modelOverrideEnvVar}
-                  onChange={(e) => setNewProfile({ ...newProfile, modelOverrideEnvVar: e.target.value })}
-                />
-              </label>
+                  <div className="bp-provider-form-header">
+                    <h4>{selectedProfile.label}</h4>
+                    <span className={`bp-status-pill ${statusFor(selectedProfile).className}`}>{statusFor(selectedProfile).text}</span>
+                  </div>
+
+                  <div className="bp-field-grid">
+                    <label>
+                      {t.labelFieldLabel}
+                      <input
+                        placeholder={t.labelFieldPlaceholder}
+                        value={draft.label}
+                        onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+                        required
+                      />
+                    </label>
+                    <label>
+                      {t.apiFormatFieldLabel}
+                      <select value={draft.apiFormat} onChange={(e) => setDraft({ ...draft, apiFormat: e.target.value })}>
+                        {API_FORMAT_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="bp-field-wide">
+                      {t.baseUrlEnvVarFieldLabel}
+                      <input
+                        placeholder={t.baseUrlEnvVarPlaceholder}
+                        value={draft.baseUrlInput}
+                        onChange={(e) => setDraft({ ...draft, baseUrlInput: e.target.value })}
+                      />
+                      <span className="bp-field-caption">
+                        {selectedProfile.baseUrlEnvVar} — {selectedProfile.available ? t.available : t.unavailable}
+                      </span>
+                    </label>
+                    <label className="bp-field-wide">
+                      {t.authTokenEnvVarFieldLabel}
+                      <input
+                        type="password"
+                        placeholder={t.authTokenEnvVarPlaceholder}
+                        value={draft.authTokenInput}
+                        onChange={(e) => setDraft({ ...draft, authTokenInput: e.target.value })}
+                      />
+                      <span className="bp-field-caption">
+                        {selectedProfile.authTokenEnvVar} — {selectedProfile.available ? t.available : t.unavailable}
+                      </span>
+                    </label>
+                  </div>
+
+                  <fieldset className="bp-fieldset">
+                    <legend>{t.roleModelMapHeading}</legend>
+                    <p className="bp-hint">{t.roleModelMapHint}</p>
+                    <div className="bp-role-grid">
+                      {AGENT_ROLES.map((role) => (
+                        <label key={role}>
+                          {t.roleLabel(role)}
+                          <input
+                            placeholder={t.roleModelPlaceholder}
+                            value={draft.roleModelMap[role]}
+                            onChange={(e) => setDraft({ ...draft, roleModelMap: { ...draft.roleModelMap, [role]: e.target.value } })}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <label className="bp-field-wide">
+                      {t.fallbackModelFieldLabel}
+                      <input
+                        placeholder={t.roleModelPlaceholder}
+                        value={draft.fallbackModel}
+                        onChange={(e) => setDraft({ ...draft, fallbackModel: e.target.value })}
+                      />
+                    </label>
+                    <p className="bp-hint">{t.fallbackModelHint}</p>
+                  </fieldset>
+
+                  <fieldset className="bp-fieldset">
+                    <legend>{t.legacyModelOverrideHeading}</legend>
+                    <label className="bp-field-wide">
+                      {t.modelOverrideEnvVarFieldLabel}
+                      <input
+                        placeholder={t.modelOverrideEnvVarPlaceholder}
+                        value={draft.modelOverrideInput}
+                        onChange={(e) => setDraft({ ...draft, modelOverrideInput: e.target.value })}
+                      />
+                    </label>
+                  </fieldset>
+
+                  <fieldset className="bp-fieldset">
+                    <legend>{t.customHeadersHeading}</legend>
+                    <p className="bp-hint">{t.customHeadersHint}</p>
+                    {draft.headers.map((h, i) => (
+                      <div className="bp-header-row" key={i}>
+                        <input
+                          placeholder={t.headerKeyPlaceholder}
+                          value={h.key}
+                          onChange={(e) => {
+                            const headers = [...draft.headers];
+                            headers[i] = { ...headers[i], key: e.target.value };
+                            setDraft({ ...draft, headers });
+                          }}
+                        />
+                        <input
+                          placeholder={t.headerValuePlaceholder}
+                          value={h.value}
+                          onChange={(e) => {
+                            const headers = [...draft.headers];
+                            headers[i] = { ...headers[i], value: e.target.value };
+                            setDraft({ ...draft, headers });
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setDraft({ ...draft, headers: draft.headers.filter((_, idx) => idx !== i) })}
+                        >
+                          {t.removeHeaderButton}
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setDraft({ ...draft, headers: [...draft.headers, { key: "", value: "" }] })}>
+                      {t.addHeaderButton}
+                    </button>
+                  </fieldset>
+
+                  <fieldset className="bp-fieldset">
+                    <legend>{t.customBodyHeading}</legend>
+                    <p className="bp-hint">{t.customBodyHint}</p>
+                    <textarea
+                      className="bp-json-textarea"
+                      placeholder={t.customBodyPlaceholder}
+                      value={draft.customBodyText}
+                      onChange={(e) => setDraft({ ...draft, customBodyText: e.target.value })}
+                      rows={4}
+                    />
+                  </fieldset>
+
+                  <fieldset className="bp-fieldset">
+                    <legend>{t.previewHeading}</legend>
+                    <p className="bp-hint">{t.previewHint}</p>
+                    <pre className="bp-preview">{buildPreview(selectedProfile, draft)}</pre>
+                  </fieldset>
+
+                  <div className="bp-provider-form-actions">
+                    <button type="submit" disabled={saving}>
+                      {saving ? t.savingButton : t.saveButton}
+                    </button>
+                    <button type="button" onClick={resetDraft} disabled={saving}>
+                      {t.resetDraftButton}
+                    </button>
+                    {saved && !saveError && <span className="bp-save-success">{t.saveSuccessNotice}</span>}
+                  </div>
+                  {saveError && (
+                    <div className="bp-form-error" role="alert">
+                      {saveError}
+                    </div>
+                  )}
+                </form>
+              )}
             </div>
-            <button type="submit" disabled={creating}>
-              {creating ? t.addingButton : t.addProfileButton}
-            </button>
-            {createError && (
-              <div className="bp-form-error" role="alert">
-                {createError}
-              </div>
-            )}
-          </form>
+          </div>
         </section>
 
         <section className="bp-section" aria-labelledby="bp-default-heading">
@@ -641,4 +626,46 @@ export function BackendProfilesPanel({
       </div>
     </div>
   );
+}
+
+// v0.21: renders exactly what this profile will resolve to — never a stored
+// secret value, only whether baseUrl/authToken are set (from the server's
+// own `available`/env-var-*name* fields, the same boundary every other
+// value in this panel respects) and the plain-string, never-secret bits
+// (role map / fallback model / header names / body override) as-is. Header
+// *values* are masked since an operator could plausibly put something
+// sensitive in one (see customHeaders' own doc comment on why this project
+// doesn't assume otherwise).
+function buildPreview(profile: BackendProfileClientInfo, draft: ProfileDraft): string {
+  const roleModelMap: Record<string, string> = {};
+  for (const role of AGENT_ROLES) {
+    const v = draft.roleModelMap[role]?.trim();
+    if (v) roleModelMap[role] = v;
+  }
+  const headers: Record<string, string> = {};
+  for (const h of draft.headers) {
+    const key = h.key.trim();
+    if (key) headers[key] = "••••";
+  }
+  let customBodyOverride: unknown = undefined;
+  if (draft.customBodyText.trim()) {
+    try {
+      customBodyOverride = JSON.parse(draft.customBodyText);
+    } catch {
+      customBodyOverride = "(invalid JSON)";
+    }
+  }
+  const preview = {
+    id: profile.id,
+    label: draft.label,
+    apiFormat: draft.apiFormat,
+    baseUrlEnvVar: `${draft.baseUrlInput.trim() ? "(new value)" : profile.baseUrlEnvVar} — ${profile.available ? "set" : "not set"}`,
+    authTokenEnvVar: `${draft.authTokenInput.trim() ? "(new value)" : profile.authTokenEnvVar} — ${profile.available ? "set" : "not set"}`,
+    ...(draft.modelOverrideInput.trim() ? { legacyModelOverrideEnvVar: draft.modelOverrideInput.trim() } : {}),
+    ...(Object.keys(roleModelMap).length > 0 ? { roleModelMap } : {}),
+    ...(draft.fallbackModel.trim() ? { fallbackModel: draft.fallbackModel.trim() } : {}),
+    ...(Object.keys(headers).length > 0 ? { customHeaders: headers } : {}),
+    ...(customBodyOverride !== undefined ? { customBodyOverride } : {}),
+  };
+  return JSON.stringify(preview, null, 2);
 }

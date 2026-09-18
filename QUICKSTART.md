@@ -3,8 +3,35 @@
 _English version. The web UI itself is bilingual (Traditional Chinese / English, toggle in the top-right corner) as of v0.17 — this document is English-only._
 
 One page to get back into this project without asking anyone anything.
-Everything here is current as of v0.14. For the full feature list and
+Everything here is current as of v0.21. For the full feature list and
 architecture, see [`README.md`](./README.md).
+
+## 0. First-time use checklist
+
+If you're starting from zero, do these in order:
+
+1. **Decide if you need `AI_OFFICE_ACCESS_PASSWORD`.** Only required if
+   you'll reach this app through something other than
+   `localhost`/`127.0.0.1` (a Cloudflare Tunnel, a reverse proxy, another
+   machine on your LAN). Plain localhost use needs nothing here. See
+   [§2](#2-access-control-if-you-expose-this-beyond-localhost).
+2. **Log in to whichever CLIs back the agents you want to use** — nothing
+   in this project needs an Anthropic Console API key:
+   - `claude auth login` — the two official Claude Code agents + Master Brain.
+   - `opencode auth login` — the OpenCode agent.
+   - `codex login` — the Codex agent.
+   - `cline auth` (or set `CLINE_API_KEY`) — the Cline agent.
+3. **If you want any of the 8 third-party-backend agents (3 NVIDIA, 3 b.ai,
+   1 Experiential Labs, 1 vyceai), fill in their API keys** in
+   `apps/server/.env.local` — see [§4](#4-what-needs-a-key-first). Skip
+   this if you're fine with 5 of 13 agents (all built-in CLI logins) and
+   don't want to spend real third-party quota.
+4. **Start the app**: `npm install` (first time only), then `npm run dev`.
+5. **Open the web UI** at the URL the launcher prints. If you're going
+   through a tunnel and set a password in step 1, you'll see a login
+   screen first — enter the password there.
+6. **Dispatch something** — a manual task or a high-level goal, both
+   described in [§5](#5-dispatching-work-from-the-web-ui).
 
 ## 1. Start it
 
@@ -56,13 +83,7 @@ it got put behind a Cloudflare Tunnel for outside access.
   button (shown only when the gate is active) clears it early.
 - **If you don't set `AI_OFFICE_ACCESS_PASSWORD`: there is no default
   password.** Every non-localhost request is refused outright (`503`), not
-  silently allowed through. The server says so loudly at startup:
-  ```
-  [ai-office] WARNING: AI_OFFICE_ACCESS_PASSWORD is not set — every
-  non-localhost request (e.g. through the Cloudflare Tunnel) will be
-  refused with 503 until you set it in apps/server/.env.local and restart.
-  There is no default password.
-  ```
+  silently allowed through. The server says so loudly at startup.
 - `AI_OFFICE_REQUIRE_AUTH=true` forces the login gate even on localhost
   (useful for testing it, or if you'd rather always require a session
   regardless of `Host`).
@@ -89,79 +110,106 @@ it got put behind a Cloudflare Tunnel for outside access.
 
 ## 3. What already works, no key required
 
-These all use a CLI already logged into a subscription on this machine —
-nothing to fill in:
+As of v0.21 there are **13 agents**, across 8 provider slots. Five agents
+authenticate through their own CLI's login session — nothing to fill in as
+an env var:
 
 | What | Backed by | Status |
 |---|---|---|
 | Master Brain (the "high-level goal" box) | `claude` CLI, Claude.ai Pro/Max login | ready — `claude auth login` already done |
-| agent-02, agent-03 | Claude Code, official Anthropic subscription | ready |
-| agent-04, agent-05 | OpenCode CLI | ready — `opencode auth login` already done |
-| agent-01 | Claude Code routed through the `nvidia-real` backend profile | ready per the Backend & Credentials panel (its key is already set in `apps/server/.env.local`) — see the caveat below |
+| agent-01, agent-02 | Claude Code, official Anthropic subscription | ready |
+| agent-03 | OpenCode CLI | ready — `opencode auth login` already done |
+| agent-04 | Codex CLI (OpenAI), `codex login` session | see the **Codex verification** note below |
+| agent-05 | Cline CLI, `cline auth` login (free-tagged model by default) | ready if you've run `cline auth`; `CLINE_API_KEY` is an optional alternative/override, not a requirement — see §4 |
 
-**Caveat on agent-01 / `nvidia-real`:** the panel showing "Ready" only means
-its two env vars are set, not that every task will succeed — during this
-check a real dispatched task on this profile failed with a generic CLI
-error unrelated to any of v0.14's own changes (real third-party backends
-can be flaky, rate-limited, or have since deprecated the configured model).
-If it fails again, check the agent's "Live CLI output" in the detail panel
-first.
+**Codex verification (from v0.20, re-confirmed still applies):**
+`CodexAdapter` is registered in `AGENT_ROSTER` for `agent-04`
+(`runtime: "codex"`), and the credential factory checks for a real login
+session at `~/.codex/auth.json`, reporting the agent as
+unavailable-but-still-visible rather than silently pretending to work if
+you haven't run `codex login`. A prior round of this project actually
+dispatched a real task end-to-end through the full Orchestrator →
+CodexAdapter → real `codex exec --json` process pipeline (not a mock) this
+way. **If you haven't run `codex login` on your own machine, this agent
+will show as available in the UI but every dispatched task will fail fast
+with an auth/login error from the `codex` CLI itself — run `codex login`
+first, then it works the same way.**
 
-agent-06 (`mock-openai`) is a dev/test-only profile — it needs
-`npm run mock-openai` (in `apps/server`) running locally and isn't meant for
-real tasks.
+**Caveat on third-party profiles in general:** the "Ready" status in the
+Backend & Credentials panel only means the required env vars are set, not
+that every task will succeed — third-party backends can be flaky,
+rate-limited, or have since deprecated the configured model. If a task
+fails, check the agent's "Live CLI output" in the detail panel first.
+
+The `mock-openai` BackendProfile is a dev/test-only demo of the
+translated-backend proxy path — it needs `npm run mock-openai` (in
+`apps/server`) running locally by hand and isn't assigned to any agent by
+default; it isn't meant for real tasks.
 
 ## 4. What needs a key first
 
-Nine agents are wired to real third-party backends but need credentials.
-Set these in `apps/server/.env.local` (git-ignored — never commit real
-values) and restart the server; as of v0.14 that file is actually loaded
+8 agents (`agent-06` through `agent-13`) are wired to real third-party
+backends and need credentials. Set these in `apps/server/.env.local`
+(git-ignored — never commit real values) and restart the server
 (`tsx --env-file-if-exists=.env.local`, wired into both `npm run dev` and
-`npm run start` — previously it was documentation-only and silently
-ignored, fixed in this pass).
+`npm run start`).
 
 ```bash
 # apps/server/.env.local — fill in only what you're setting up
 
-# agent-08 / NVIDIA NIM #1 — https://build.nvidia.com (create an API key)
+# agent-06 / NVIDIA NIM #1 — https://build.nvidia.com (create an API key)
 AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN=
 AI_OFFICE_BACKEND_NVIDIA_1_MODEL=          # e.g. meta/llama-3.1-70b-instruct
 
-# agent-09 / NVIDIA NIM #2 — same source as above, a second key
+# agent-07 / NVIDIA NIM #2 — same source as above, a second key
 AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN=
 AI_OFFICE_BACKEND_NVIDIA_2_MODEL=
 
-# agent-10 / NVIDIA NIM #3 — same source, a third key
+# agent-08 / NVIDIA NIM #3 — same source, a third key
 AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN=
 AI_OFFICE_BACKEND_NVIDIA_3_MODEL=
 
-# agent-11 / b.ai #1 — https://b.ai (API key from your b.ai account)
+# agent-09 / b.ai #1 — https://b.ai (API key from your b.ai account)
 AI_OFFICE_BACKEND_BAI_1_BASE_URL=https://api.b.ai
 AI_OFFICE_BACKEND_BAI_1_AUTH_TOKEN=
 
-# agent-12 / b.ai #2 — same source, a second key
+# agent-10 / b.ai #2 — same source, a second key
 AI_OFFICE_BACKEND_BAI_2_BASE_URL=https://api.b.ai
 AI_OFFICE_BACKEND_BAI_2_AUTH_TOKEN=
 
-# agent-13 / b.ai #3 — same source, a third key
+# agent-11 / b.ai #3 — same source, a third key
 AI_OFFICE_BACKEND_BAI_3_BASE_URL=https://api.b.ai
 AI_OFFICE_BACKEND_BAI_3_AUTH_TOKEN=
 
-# agent-14 / platform.experientiallabs.ai — https://platform.experientiallabs.ai
-# Also set this agent's `model` in AGENT_ROSTER (apps/server/src/index.ts) to
-# a dot-form gateway slug your key is actually granted (e.g. "claude-opus-5"),
-# or requests fail with 403 model_not_granted.
+# agent-12 / platform.experientiallabs.ai — https://platform.experientiallabs.ai
 AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_BASE_URL=https://api.experientiallabs.ai
 AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN=
 
-# agent-07 / Cline runtime (not a BackendProfile — its own CLI/credential)
-# Source: Cline's own hosted provider has free-tagged models; get a key via
-# the cline CLI's own login, or run `cline auth` interactively instead.
+# agent-13 / vyceai — https://vyceai.com. NEW in v0.21 — its exact wire
+# format (Anthropic Messages vs. OpenAI Chat Completions) was not confirmed
+# from official docs (none were found; see README's "vyceai research"
+# note), so its apiFormat ships "unset". Fill in the URL/key here, then go
+# to the Backend & Credentials panel and pick the correct API format for
+# it yourself before dispatching a task through it — the panel will not
+# guess, and refuses to route a task through an "unset" profile with a
+# clear error instead of misinterpreting its bytes.
+AI_OFFICE_BACKEND_VYCEAI_1_BASE_URL=
+AI_OFFICE_BACKEND_VYCEAI_1_AUTH_TOKEN=
+
+# agent-05 / Cline runtime (optional — not a BackendProfile, its own
+# CLI/credential; agent-05 already works via `cline auth` login without
+# this, see §3). Only set this if you specifically want Cline's own
+# hosted "cline" provider or a different free-tagged model via override.
 CLINE_API_KEY=
 ```
+
+Per-role model mapping (which upstream model id to send when the CLI
+requests Sonnet/Opus/Fable/Haiku, plus a Subagent catch-all and a Fallback
+model), custom headers, and a custom JSON body override are all set from
+the Backend & Credentials panel now too (v0.21) — see §7.
 
 Until a var is filled in, its agent still shows up and looks "available" in
 the UI — dispatching a task to it just fails fast and clearly (a
@@ -191,26 +239,43 @@ limitations below) to open its detail panel and watch raw CLI output
 stream in live. When a task finishes, a completion (or failure) card
 appears at the bottom of the main column.
 
-## 6. Setting the default backend
+## 6. Language
+
+Click the **EN** / **中文** button in the top-right header to toggle the
+whole UI between English and Traditional Chinese (added in v0.17). It's a
+plain client-side toggle — no restart, no server involvement, and it
+doesn't affect this document (English-only) or any other `.md` file.
+
+## 7. Backend & Credentials panel
 
 The **Backend & Credentials** button in the header opens a panel with:
 
-- **Credential sources** — the two subscription-based sources
-  (`claude-code-cli`, `opencode-native`) plus Cline's own `cline`/`CLINE_API_KEY`
-  source, and whether each looks usable. The Cline row used to disappear
-  entirely instead of showing "Unavailable" when the key wasn't set — fixed
-  in this pass (`packages/core/src/credentials/factory.ts`).
-- **Backend profiles** — every registered profile, its API format, which
-  two (or three) env vars it needs, and a live **Ready** / **Missing env
-  var(s)** status per profile (never the secret values themselves).
+- **Credential sources** — the subscription-based sources
+  (`claude-code-cli`, `opencode-native`, `codex-native`) plus Cline's own
+  `cline`/`CLINE_API_KEY` source, and whether each looks usable.
+- **Backend profiles** (v0.21: rebuilt as a cc-switch-style single-provider
+  editor) — a left-hand list of every provider (every registered
+  `BackendProfile`, plus the four CLI-login providers: Claude Code
+  official, OpenCode, Codex, Cline). Pick one to edit it in full on the
+  right: name, Base URL, API key (never echoed back in plaintext — blank
+  means "keep as-is", type/paste a new value to overwrite), upstream API
+  format, per-role model mapping (Sonnet/Opus/Fable/Haiku/Subagent, plus a
+  Fallback model), custom headers/body overrides for providers that need
+  extra static parameters, and a live preview of what the profile actually
+  resolves to (secret values always masked). The four CLI-login providers
+  show a simplified view instead — just login status and how to log in —
+  since they have no Base URL/API key of their own. This replaced the old
+  table-of-profiles-plus-add-form UI entirely; there's no "add/delete
+  provider" UI (the provider list still comes from `AGENT_ROSTER`/
+  `BackendProfile` in `apps/server/src/index.ts`).
 - **Default backend profile** — a dropdown of every registered profile
   plus "Official (Anthropic)". This sets which profile any *newly added,
   unassigned* agent falls back to; it doesn't retroactively move an agent
   that already has its own profile (from `AGENT_ROSTER` or a per-agent
-  override). Per-agent overrides are set from each agent's own row in this
-  same panel.
+  override). Per-agent overrides are set from each agent's own row in the
+  agent → backend assignment table further down the same panel.
 
-## 7. Known limitations
+## 8. Known limitations
 
 - **Freebuff has no adapter.** Its CLI has no headless or API surface at
   all (confirmed twice — see
@@ -221,18 +286,24 @@ The **Backend & Credentials** button in the header opens a panel with:
   not a per-request routing mechanism, so this project talks to each
   backend directly instead of through it. Full research:
   [`docs/cc-switch-research.md`](./docs/cc-switch-research.md).
-- **PixiJS `addChild` deprecation warning** in the browser console
-  (`Only Containers will be allowed to be added`, from `sign.addChild(textLayer)`
-  in `addZoneSign`, `OfficeScene.tsx`) — cosmetic console noise, not a
-  runtime break. The code path is unchanged as of v0.14 (confirmed by
-  reading the source); the live-console behavior itself wasn't
-  re-confirmed this round since no browser tool was available in that
-  session — see
-  [`docs/pending-font-layout-integration-check.md`](./docs/pending-font-layout-integration-check.md).
+- **vyceai's wire format is unconfirmed.** No official API documentation
+  was found for it (see README's "vyceai research" note) — its
+  `BackendProfile` ships with `apiFormat: "unset"` rather than a guessed
+  value, and the proxy refuses to route a task through it until the
+  operator picks "Anthropic Messages API" or "OpenAI Chat Completions" for
+  it in the Backend & Credentials panel.
+- **Role → model mapping's "Subagent" role is a best-effort catch-all, not
+  real subagent detection.** Claude Code's outbound request for a
+  subagent's own model choice isn't distinguishable from an ordinary
+  request for the same model family at the HTTP layer the format-
+  translation proxy sees, so `subagent`'s mapping (if set) only catches a
+  request that matched none of Sonnet/Opus/Haiku/Fable's own substring
+  match — see `RoleModelMap`'s doc comment in
+  `packages/core/src/credentials/backend-profile.ts`.
 - **The accessible agent list can be behind the canvas for mouse users.**
   `.agent-access-list` (screen-reader-first agent list) may still be
   visually covered by the office canvas in some layouts, so a sighted
   mouse user may need to click the agent's sprite in the scene itself
-  rather than this list. Not independently re-confirmed live this round
-  (same reason as above) — see the doc linked above for the full history
-  and what was and wasn't re-checked.
+  rather than this list — see
+  [`docs/pending-font-layout-integration-check.md`](./docs/pending-font-layout-integration-check.md)
+  for the original history.

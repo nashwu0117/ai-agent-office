@@ -1,4 +1,13 @@
-import type { Agent, BackendProfileClientInfo, CredentialSourceStatus, OfficeEvent, Task } from "@ai-office/core";
+import type {
+  Agent,
+  BackendProfileClientInfo,
+  CredentialSourceStatus,
+  CustomBodyOverride,
+  CustomHeaders,
+  OfficeEvent,
+  RoleModelMap,
+  Task,
+} from "@ai-office/core";
 
 export type ServerMessage =
   | OfficeEvent
@@ -115,6 +124,11 @@ export interface BackendProfileInput {
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
   modelOverrideEnvVar?: string;
+  /** v0.21: see @ai-office/core's RoleModelMap. */
+  roleModelMap?: RoleModelMap;
+  fallbackModel?: string;
+  customHeaders?: CustomHeaders;
+  customBodyOverride?: CustomBodyOverride;
 }
 
 async function jsonRequest(url: string, method: string, body: unknown): Promise<void> {

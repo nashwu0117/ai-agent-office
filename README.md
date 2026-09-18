@@ -11,28 +11,43 @@ a workstation, work, and return when done.
 > has the start command, what already works with no setup, and exactly which
 > env vars are still missing and where to get them.
 
-## Status: vertical slice (v0.13)
+## Status: vertical slice (v0.21)
 
 This is a progressively-built vertical slice, not the full product vision.
 So far:
 
-- 14 agents, backed by **three different real CLI backends** — Claude Code,
-  OpenCode, and Cline — dispatched through a shared `RuntimeAdapter`
+- 13 agents, backed by **four different real CLI backends** — Claude Code,
+  OpenCode, Cline, and Codex — dispatched through a shared `RuntimeAdapter`
   interface (`packages/core/src/runtime/adapter.ts`). Adding a new CLI means
   implementing that interface, not touching the Orchestrator or the UI. (A
-  fourth candidate, Freebuff, was researched and found to have no headless
+  fifth candidate, Freebuff, was researched and found to have no headless
   or API surface at all as of v0.13 — see
   [`docs/runtime-research-v0.13.md`](./docs/runtime-research-v0.13.md).
   Re-verified in v0.13.1 against the actually-installed CLI binary
   (same "no" — see
   [`docs/runtime-research-v0.13.1.md`](./docs/runtime-research-v0.13.1.md)).)
-- Nine of the Claude Code agents are routed through independent third-party
-  API backends instead of the operator's own official Anthropic subscription
-  (NVIDIA NIM ×3, b.ai ×3, platform.experientiallabs.ai ×1, plus the two
-  earlier `nvidia`/`mock-openai` demo profiles) via the `BackendProfile`
-  mechanism below — see
+- 8 of the Claude Code agents are routed through independent third-party API
+  backends instead of the operator's own official Anthropic subscription
+  (NVIDIA NIM ×3, b.ai ×3, platform.experientiallabs.ai ×1, and — new in
+  v0.21 — vyceai ×1) via the `BackendProfile` mechanism below — see
   [`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md) for
-  exactly which environment variables to set for each one.
+  exactly which environment variables to set for each one. **vyceai
+  research (v0.21):** no official API documentation was found for it (its
+  own site's marketing copy and a couple of third-party integrations
+  suggest OpenAI-compatible, but nothing authoritative pins down the exact
+  base URL or confirms it against this project's own two supported
+  `apiFormat`s), so its profile ships with `apiFormat: "unset"` rather than
+  a guessed value — the operator picks the real format themselves in the
+  Backend & Credentials panel once they have a key to test with.
+- **Backend & Credentials panel rebuilt as a cc-switch-style
+  single-provider editor (v0.21)** — pick a provider from a left-hand list
+  (every `BackendProfile`, plus the four CLI-login providers) and edit it
+  in full on the right: name, Base URL, API key (never echoed back in
+  plaintext), upstream API format, **per-role model mapping**
+  (Sonnet/Opus/Fable/Haiku/Subagent — new in v0.21, see
+  `packages/core/src/credentials/backend-profile.ts`'s `RoleModelMap`),
+  fallback model, custom headers/body overrides, and a live secret-masked
+  preview. Replaces the old table-of-profiles-plus-add-form UI entirely.
 - Multiple tasks dispatch and run **concurrently** across different agents;
   a simple workspace lock stops two agents from ever running a CLI against
   the same directory at the same time.
@@ -105,7 +120,7 @@ in `apps/server/src/index.ts`, or pass a different `provider/model` string
 
 ### Setting up Cline
 
-`packages/adapters/cline` (used by `agent-07`, `runtime: "cline"`) spawns
+`packages/adapters/cline` (used by `agent-05`, `runtime: "cline"`) spawns
 the real `cline` CLI (npm package `cline`, v3.0.62 at time of writing) in
 its headless `--json` mode. Two ways to authenticate, same shape as
 `ANTHROPIC_API_KEY` for Claude Code:
@@ -188,12 +203,13 @@ npm run dev:web
 
 ## Using it
 
-1. Open the web UI — you should see 14 agents wandering the Public/Talent
-   Area. `agent-01`..`03`, `08`..`14` run on Claude Code (several of those
-   routed through a third-party backend profile — see the "Backend &
-   Credentials" panel), `agent-04`/`05` run on OpenCode, `agent-06` runs on
-   Claude Code through the dev/test mock-openai profile, and `agent-07`
-   runs on Cline (click an agent to see its `Runtime` in the detail panel).
+1. Open the web UI — you should see 13 agents wandering the Public/Talent
+   Area. `agent-01`/`02` run on Claude Code with the operator's own official
+   subscription; `agent-06`..`13` also run on Claude Code but routed through
+   a third-party backend profile (NVIDIA/b.ai/Experiential Labs/vyceai —
+   see the "Backend & Credentials" panel); `agent-03` runs on OpenCode;
+   `agent-04` runs on Codex CLI; and `agent-05` runs on Cline (click an
+   agent to see its `Runtime` in the detail panel).
 2. Fill in a task description, a real local folder path, and optionally
    check which capabilities the task needs (`backend`/`frontend`/`testing`/
    `docs`), then dispatch it. You can dispatch several tasks back to back —
@@ -232,6 +248,7 @@ packages/core                    shared types, event schema, Orchestrator (dispa
 packages/adapters/claude-code    Claude Code CLI adapter (implements RuntimeAdapter)
 packages/adapters/opencode       OpenCode CLI adapter (implements RuntimeAdapter)
 packages/adapters/cline          Cline CLI adapter (implements RuntimeAdapter)
+packages/adapters/codex          Codex CLI adapter (implements RuntimeAdapter)
 packages/adapters/master-anthropic  Claude Code CLI headless MasterBrain (implements MasterBrain)
 apps/server                      WebSocket + REST server; registers the agent roster
                                   (id -> runtime -> eligibleCapabilities), the
