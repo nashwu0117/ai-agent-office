@@ -8,6 +8,8 @@ import { useLanguage } from "./i18n/language-context.js";
 import { LanguageToggle } from "./i18n/LanguageToggle.js";
 import { useAuthRequired } from "./AuthGate.js";
 import { logout } from "./auth-client.js";
+import { addRecentWorkspacePath, getRecentWorkspacePaths } from "./recent-paths.js";
+import { WorkspacePathInput } from "./WorkspacePathInput.js";
 import "./backend-profiles-panel.css";
 
 interface LogLine {
@@ -57,14 +59,27 @@ const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.ho
 
 export default function App() {
   const { t } = useLanguage();
+  const folderBrowserLabels = {
+    title: t.folderBrowserTitle,
+    up: t.folderBrowserUp,
+    select: t.folderBrowserSelect,
+    cancel: t.folderBrowserCancel,
+    loading: t.folderBrowserLoading,
+    empty: t.folderBrowserEmpty,
+    create: t.folderBrowserCreate,
+    createPlaceholder: t.folderBrowserCreatePlaceholder,
+    createPrompt: t.folderBrowserCreatePrompt,
+  };
   const authRequired = useAuthRequired();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasksById, setTasksById] = useState<Record<string, Task>>({});
   const [logsByAgent, setLogsByAgent] = useState<Record<string, LogLine[]>>({});
   const [completions, setCompletions] = useState<CompletionCard[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedMaster, setSelectedMaster] = useState(false);
   const [description, setDescription] = useState("");
   const [workspacePath, setWorkspacePath] = useState("");
+  const [recentWorkspacePaths, setRecentWorkspacePaths] = useState<string[]>(() => getRecentWorkspacePaths());
   const [requiredCapabilities, setRequiredCapabilities] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -416,7 +431,37 @@ export default function App() {
     .map((status) => t.credentialDetailLine(status.provider, status.id, status.available))
     .join(". ");
 
+  // v0.24 hotfix: whichever element (accessible agent/room button, or the
+  // detail panel's own close button) had focus right before opening the
+  // detail panel — restored on close so keyboard/screen-reader users land
+  // back where they were instead of losing focus into the document body.
+  const lastPanelTriggerRef = useRef<HTMLElement | null>(null);
+  const detailPanelOpenRef = useRef(false);
+
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
+  const selectedAgentTask = useMemo(() => {
+    if (!selectedAgent) return null;
+    if (selectedAgent.currentTaskId) return tasksById[selectedAgent.currentTaskId] ?? null;
+    return (
+      Object.values(tasksById)
+        .filter((task) => task.assignedAgentId === selectedAgent.id && task.status !== "done" && task.status !== "failed")
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+    );
+  }, [selectedAgent, tasksById]);
+  useEffect(() => {
+    const isOpen = Boolean(selectedAgent) || selectedMaster || selectedRoom !== null;
+    if (detailPanelOpenRef.current && !isOpen) {
+      const trigger = lastPanelTriggerRef.current;
+      if (trigger && document.body.contains(trigger)) trigger.focus();
+      lastPanelTriggerRef.current = null;
+    }
+    detailPanelOpenRef.current = isOpen;
+  }, [selectedAgent, selectedMaster, selectedRoom]);
+
+  const masterTasks = useMemo(
+    () => Object.values(tasksById).filter((task) => task.source === "master").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [tasksById]
+  );
 
   function toggleCapability(cap: string) {
     setRequiredCapabilities((prev) => (prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap]));
@@ -429,6 +474,7 @@ export default function App() {
     try {
       await submitTask({ description, workspacePath, requiredCapabilities });
       setDescription("");
+      setRecentWorkspacePaths(addRecentWorkspacePath(workspacePath));
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -443,6 +489,7 @@ export default function App() {
     try {
       await submitGoal({ goal: goalText, workspacePath: goalWorkspacePath });
       setGoalText("");
+      setRecentWorkspacePaths(addRecentWorkspacePath(goalWorkspacePath));
     } catch (err) {
       setGoalFormError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -459,6 +506,7 @@ export default function App() {
       setAssignWorkspacePath("");
       setAssignBusyPending(null);
       setAnnouncement(t.announceTaskAssigned(agentId, queued));
+      setRecentWorkspacePaths(addRecentWorkspacePath(workspacePathValue));
     } catch (err) {
       setAssignError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -518,12 +566,22 @@ export default function App() {
             roomBusy={roomBusy}
             masterPlanning={masterPlanning}
             selectedId={selectedId}
+            selectedMaster={selectedMaster}
             onSelect={(id) => {
+              lastPanelTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              setSelectedMaster(false);
               setSelectedRoom(null);
               setSelectedId(id);
             }}
+            onSelectMaster={() => {
+              lastPanelTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              setSelectedId(null);
+              setSelectedRoom(null);
+              setSelectedMaster(true);
+            }}
             selectedRoom={selectedRoom}
             onSelectRoom={(room) => {
+              lastPanelTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
               setSelectedId(null);
               setSelectedRoom(room);
             }}
@@ -550,14 +608,18 @@ export default function App() {
             <label className="sr-only" htmlFor="goal-workspace-path">
               {t.goalWorkspaceLabel}
             </label>
-            <input
+            <WorkspacePathInput
               id="goal-workspace-path"
-              type="text"
               placeholder={t.goalWorkspacePlaceholder}
               value={goalWorkspacePath}
-              onChange={(e) => setGoalWorkspacePath(e.target.value)}
-              aria-invalid={Boolean(goalFormError)}
-              aria-describedby={goalFormError ? "goal-form-error" : undefined}
+              onChange={setGoalWorkspacePath}
+              recentPaths={recentWorkspacePaths}
+              recentPathsLabel={t.recentWorkspacePathsLabel}
+              recentPathsEmptyHint={t.recentWorkspacePathsEmptyHint}
+              browseLabel={t.browseFolderLabel}
+              folderBrowserLabels={folderBrowserLabels}
+              ariaInvalid={Boolean(goalFormError)}
+              ariaDescribedBy={goalFormError ? "goal-form-error" : undefined}
               required
             />
             <button type="submit" disabled={goalSubmitting}>
@@ -614,14 +676,18 @@ export default function App() {
             <label className="sr-only" htmlFor="task-workspace-path">
               {t.taskWorkspaceLabel}
             </label>
-            <input
+            <WorkspacePathInput
               id="task-workspace-path"
-              type="text"
               placeholder={t.taskWorkspacePlaceholder}
               value={workspacePath}
-              onChange={(e) => setWorkspacePath(e.target.value)}
-              aria-invalid={Boolean(formError)}
-              aria-describedby={formError ? "task-form-error" : undefined}
+              onChange={setWorkspacePath}
+              recentPaths={recentWorkspacePaths}
+              recentPathsLabel={t.recentWorkspacePathsLabel}
+              recentPathsEmptyHint={t.recentWorkspacePathsEmptyHint}
+              browseLabel={t.browseFolderLabel}
+              folderBrowserLabels={folderBrowserLabels}
+              ariaInvalid={Boolean(formError)}
+              ariaDescribedBy={formError ? "task-form-error" : undefined}
               required
             />
             <fieldset className="capability-picker">
@@ -676,7 +742,7 @@ export default function App() {
         </main>
 
         <aside
-          className={`detail-panel ${selectedAgent || selectedRoom !== null ? "open" : ""}`}
+          className={`detail-panel ${selectedAgent || selectedMaster || selectedRoom !== null ? "open" : ""}`}
           aria-label={t.agentDetailsAriaLabel}
         >
           {selectedRoom !== null && (
@@ -711,9 +777,73 @@ export default function App() {
               )}
             </>
           )}
+          {selectedMaster && (
+            <>
+              <div className="detail-panel-header-row">
+                <h2>{t.masterCharacterLabel}</h2>
+                <button type="button" className="bp-close" onClick={() => setSelectedMaster(false)} aria-label={t.closeMasterPanel}>
+                  ✕
+                </button>
+              </div>
+              <dl>
+                <dt>{t.masterDetailStatus}</dt>
+                <dd>{masterPlanning ? t.masterPlanningBubble : t.masterIdleBubble}</dd>
+                <dt>{t.masterDetailBackend}</dt>
+                <dd>{t.masterBrainOptionLabel(masterBrain)}</dd>
+                <dt>{t.masterDetailModel}</dt>
+                <dd>{masterBrainModels[masterBrain] ?? t.emptyValue}</dd>
+              </dl>
+              <h3>{t.masterDetailCurrentGoals}</h3>
+              {goalsSorted.length === 0 ? (
+                <p className="assign-form-hint">{t.masterDetailNoGoals}</p>
+              ) : (
+                <div className="cli-log">
+                  {goalsSorted.slice(0, 8).map((goal) => (
+                    <div key={goal.goalId} className="cli-log-line">
+                      <strong>{goal.status === "planning" ? t.masterPlanningBubble : goal.status}</strong> — {goal.goal}
+                      {goal.workspacePath ? <><br /><span className="completion-meta">{goal.workspacePath}</span></> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <h3>{t.masterDetailTasks}</h3>
+              {masterTasks.length === 0 ? (
+                <p className="assign-form-hint">{t.masterDetailNoTasks}</p>
+              ) : (
+                <div className="cli-log">
+                  {masterTasks.slice(0, 12).map((task) => (
+                    <div key={task.id} className="cli-log-line">
+                      <strong>{task.title}</strong> — {t.taskStatusLabel(task.status)}
+                      {task.assignedAgentId ? <><br /><span className="completion-meta">→ {task.assignedAgentId}</span></> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
           {selectedAgent && (
             <>
               <h2>{selectedAgent.id}</h2>
+
+              <section className="detail-current-task" aria-label={t.detailCurrentWork}>
+                <h3>{t.detailCurrentWork}</h3>
+                {selectedAgentTask ? (
+                  <>
+                    <strong>{selectedAgentTask.title}</strong>
+                    <p>{selectedAgentTask.description}</p>
+                    <dl>
+                      <dt>{t.detailTaskStatus}</dt>
+                      <dd>{t.taskStatusLabel(selectedAgentTask.status)}</dd>
+                      <dt>{t.detailTaskSource}</dt>
+                      <dd>{t.taskSourceLabel(selectedAgentTask.source)}</dd>
+                      <dt>{t.detailWorkspace}</dt>
+                      <dd>{selectedAgentTask.workspacePath}</dd>
+                    </dl>
+                  </>
+                ) : (
+                  <p className="assign-form-hint">{t.emptyValue}</p>
+                )}
+              </section>
 
               <form
                 className="task-form assign-form"
@@ -738,12 +868,16 @@ export default function App() {
                 <label className="sr-only" htmlFor="assign-workspace-path">
                   {t.assignWorkspaceLabel}
                 </label>
-                <input
+                <WorkspacePathInput
                   id="assign-workspace-path"
-                  type="text"
                   placeholder={t.assignWorkspacePlaceholder}
                   value={assignWorkspacePath}
-                  onChange={(e) => setAssignWorkspacePath(e.target.value)}
+                  onChange={setAssignWorkspacePath}
+                  recentPaths={recentWorkspacePaths}
+                  recentPathsLabel={t.recentWorkspacePathsLabel}
+                  recentPathsEmptyHint={t.recentWorkspacePathsEmptyHint}
+                  browseLabel={t.browseFolderLabel}
+                  folderBrowserLabels={folderBrowserLabels}
                   required
                 />
                 <button type="submit" disabled={assigning}>
@@ -840,6 +974,9 @@ export default function App() {
             <ol className="queue-list">
               {queueItems.map((task) => {
                 const depTitles = (task.dependsOn ?? []).map((id) => tasksById[id]?.title ?? id);
+                const dependencyTasks = (task.dependsOn ?? [])
+                  .map((id) => tasksById[id])
+                  .filter((dependency): dependency is Task => Boolean(dependency));
                 return (
                   <li
                     key={task.id}
@@ -870,6 +1007,19 @@ export default function App() {
                       <div className="queue-item-meta queue-item-tag-blocked-failed">
                         <strong>{t.queueBlockedFailedLabel}</strong>
                         {t.queueBlockedFailedDetail(depTitles)}
+                        <div className="queue-item-dependency-details">
+                          {dependencyTasks.length > 0 ? (
+                            dependencyTasks.map((dependency) => (
+                              <div key={dependency.id}>
+                                <strong>{dependency.title}</strong> — {t.taskStatusLabel(dependency.status)}
+                                {dependency.assignedAgentId ? ` → ${dependency.assignedAgentId}` : ""}
+                                {dependency.resultSummary ? `: ${dependency.resultSummary}` : ""}
+                              </div>
+                            ))
+                          ) : (
+                            <div>{t.queueDependencyDetailsUnavailable}</div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </li>

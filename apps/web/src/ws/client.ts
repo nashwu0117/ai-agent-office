@@ -239,6 +239,40 @@ export async function revealBackendProfileSecret(id: string): Promise<{ baseUrl:
  * load/WS snapshot, so a login done *after* opening the app never showed
  * up without a full reload.
  */
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+export interface DirListing {
+  path: string;
+  parent: string | null;
+  entries: DirEntry[];
+}
+
+/** v0.23: server-side folder browser backing the workspace-path picker — see index.ts's GET /api/fs/dirs. */
+export async function browseWorkspaceDirs(path?: string): Promise<DirListing> {
+  const url = path ? `/api/fs/dirs?path=${encodeURIComponent(path)}` : "/api/fs/dirs";
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+  return body as DirListing;
+}
+
+export async function createWorkspaceDir(path: string, name: string): Promise<void> {
+  const res = await fetch("/api/fs/dirs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, name }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+}
+
 export async function fetchCredentialStatuses(): Promise<CredentialSourceStatus[]> {
   const res = await fetch("/api/credentials");
   const body = await res.json().catch(() => []);

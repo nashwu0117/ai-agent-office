@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import { mkdir, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
@@ -501,6 +504,66 @@ app.get("/api/tasks", (_req, res) => {
 // rather than a new persistence layer.
 app.get("/api/handoffs", (_req, res) => {
   res.json(handoffCoordinator.list());
+});
+
+// Backs the workspace-path folder browser in the web UI: this server already
+// runs with the operator's own filesystem access (agents it dispatches
+// already execute arbitrary code on this machine — see SECURITY.md), so
+// listing directory names under an operator-chosen path adds no new trust
+// boundary. Directories only (workspace paths are always folders), never
+// file contents or hidden-file listing beyond plain readdir's own behavior.
+app.get("/api/fs/dirs", async (req, res) => {
+  const requested = typeof req.query.path === "string" && req.query.path.trim() ? req.query.path : homedir();
+  const target = isAbsolute(requested) ? resolve(requested) : homedir();
+  try {
+    const dirents = await readdir(target, { withFileTypes: true });
+    const entries = dirents
+      .filter((d) => d.isDirectory())
+      .map((d) => ({ name: d.name, path: join(target, d.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    const parent = dirname(target);
+    res.json({ path: target, parent: parent === target ? null : parent, entries });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      res.status(404).json({ error: `No such directory: ${target}` });
+    } else if (code === "EACCES" || code === "EPERM") {
+      res.status(403).json({ error: `Permission denied: ${target}` });
+    } else if (code === "ENOTDIR") {
+      res.status(400).json({ error: `Not a directory: ${target}` });
+    } else {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+});
+
+app.post("/api/fs/dirs", async (req, res) => {
+  const requested = typeof req.body?.path === "string" && req.body.path.trim() ? req.body.path : homedir();
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  const target = isAbsolute(requested) ? resolve(requested) : homedir();
+
+  if (!name || name === "." || name === ".." || name.length > 255 || /[\\/\0]/.test(name)) {
+    res.status(400).json({ error: "Folder name must be a single valid directory name." });
+    return;
+  }
+
+  try {
+    await mkdir(join(target, name));
+    res.status(201).json({ path: join(target, name), name });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") {
+      res.status(409).json({ error: `A folder named "${name}" already exists.` });
+    } else if (code === "ENOENT") {
+      res.status(404).json({ error: `No such directory: ${target}` });
+    } else if (code === "ENOTDIR") {
+      res.status(400).json({ error: `Not a directory: ${target}` });
+    } else if (code === "EACCES" || code === "EPERM") {
+      res.status(403).json({ error: `Permission denied: ${target}` });
+    } else {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
 });
 
 app.post("/api/tasks", dispatchLimiter, async (req, res) => {

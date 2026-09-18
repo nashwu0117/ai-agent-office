@@ -423,29 +423,62 @@ input[type="checkbox"] {
   outline-offset: 3px;
 }
 
+/*
+ * v0.24 hotfix: this list used to be an absolutely-positioned overlay sitting
+ * directly on top of the office canvas, hidden via opacity:0 +
+ * pointer-events:none and revealed only on :focus-within. That combination
+ * is a catch-22 for any activation path that isn't sequential keyboard Tab
+ * travel: a mouse click, a pointer-based click dispatched by browser
+ * automation/testing tools, and a touch screen reader's tap-to-activate
+ * gesture all resolve a real screen coordinate to a target element, and
+ * pointer-events:none makes that hit-test skip straight over the whole list
+ * — so the very click meant to focus (and thereby reveal) a button was
+ * silently swallowed before it could ever land on one. That's the reported
+ * bug: clicking one of these buttons directly did nothing.
+ *
+ * Two other fixes were tried and rejected before this one, both empirically
+ * (see the v0.24 hotfix report for the reproductions):
+ *   - Moving the hidden list off-canvas (large negative offset): the office
+ *     canvas's own overflow:hidden then clips it away entirely, which makes
+ *     click tools that check "is this in the viewport" (e.g. Playwright's
+ *     default .click()) time out instead of clicking — same practical bug,
+ *     different mechanism.
+ *   - Collapsing each button to a 1x1px hit target while keeping the overlay
+ *     position (a per-element version of this file's .sr-only): gaining
+ *     focus is what reveals the list, but revealing it is a synchronous
+ *     layout change, so on a single click gesture the mousedown (which
+ *     focuses the button) and the click event that follows it can land on
+ *     two different elements once the list has already resized underneath
+ *     the pointer — the click silently lands on the list's own background
+ *     instead of the button.
+ *
+ * Both of those failure modes only exist because the list tries to live as
+ * an invisible overlay on top of the canvas. Rendering it as a normal,
+ * always-visible, modestly-styled row below the canvas (which is what the
+ * on-screen instructions already told users to expect — "the agent buttons
+ * below") sidesteps all of it: the buttons are real, on-screen, pointer-
+ * events-enabled targets at all times, they never overlap the canvas's own
+ * click targets, and no focus-triggered layout change ever happens mid-click.
+ */
 .agent-access-list {
-  position: absolute;
-  z-index: 2;
-  left: 18px;
-  bottom: 18px;
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  max-width: calc(100% - 36px);
-  margin: 0;
+  margin: 10px 0 0;
   padding: 8px;
   list-style: none;
-  opacity: 0;
-  pointer-events: none;
   background: var(--ink-950);
-  border: 3px solid var(--focus);
+  border: 3px solid var(--stone-500);
   box-shadow: 4px 4px 0 var(--outline);
-  transition: opacity 80ms steps(1);
 }
 
 .agent-access-list:focus-within {
-  opacity: 1;
-  pointer-events: auto;
+  border-color: var(--focus);
+}
+
+.agent-access-list.room-access-list {
+  margin-top: 7px;
 }
 
 .agent-access-list button {
@@ -614,6 +647,407 @@ input[type="checkbox"] {
 .task-form input[type="text"]:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
+}
+
+.workspace-path-input {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.workspace-path-input input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 48px;
+  padding-inline: 14px;
+}
+
+.workspace-path-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  color: var(--paper);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-500);
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 2px 2px 0 var(--outline);
+  transition:
+    border-color 80ms steps(1),
+    background-color 80ms steps(1);
+}
+
+.workspace-path-toggle-label {
+  display: none;
+}
+
+.workspace-path-toggle:hover {
+  border-color: var(--stone-300);
+}
+
+.workspace-path-toggle:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.workspace-path-browse {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  color: var(--paper);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-500);
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: system-ui, -apple-system, "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  line-height: 1;
+  box-shadow: 2px 2px 0 var(--outline);
+  transition:
+    border-color 80ms steps(1),
+    background-color 80ms steps(1);
+}
+
+.workspace-path-browse:hover {
+  border-color: var(--stone-300);
+}
+
+.workspace-path-browse:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.workspace-path-menu {
+  position: fixed;
+  z-index: 90;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--ink-950);
+  border: 2px solid var(--stone-500);
+  box-shadow: 3px 3px 0 var(--outline);
+}
+
+.workspace-path-option {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--paper);
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 11px;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.workspace-path-option:hover,
+.workspace-path-option:focus-visible {
+  color: #fff8e9;
+  background: var(--stone-700);
+  outline: none;
+}
+
+.workspace-path-empty {
+  padding: 7px 9px;
+  color: var(--paper-muted);
+  font-size: 11px;
+}
+
+.folder-browser-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(12, 13, 22, 0.72);
+}
+
+.folder-browser-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: min(920px, 94vw);
+  height: min(560px, 84vh);
+  max-height: 84vh;
+  padding: 16px;
+  color: var(--paper);
+  background: var(--ink-950);
+  border: 3px solid var(--stone-500);
+  box-shadow: 4px 4px 0 var(--outline);
+}
+
+.folder-browser-title {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.folder-browser-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.folder-browser-up {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 5px 9px;
+  color: var(--paper);
+  background: var(--stone-700);
+  border: 2px solid var(--stone-500);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.folder-browser-up:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.folder-browser-up:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.folder-browser-path {
+  padding: 7px 9px;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.34);
+  border: 2px solid var(--stone-700);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.folder-browser-create {
+  display: flex;
+  gap: 8px;
+}
+
+.folder-browser-create input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 9px;
+  color: var(--paper);
+  background: var(--ink-900);
+  border: 2px solid var(--stone-700);
+}
+
+.folder-browser-create button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--outline);
+  background: var(--gold);
+  border: 2px solid var(--outline);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.folder-browser-create button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.detail-current-task {
+  margin: 0 0 16px;
+  padding: 10px;
+  color: var(--paper);
+  background: var(--ink-950);
+  border: 2px solid var(--gold);
+  box-shadow: 2px 2px 0 var(--outline);
+}
+
+.detail-current-task h3 {
+  margin: 0 0 7px;
+  color: var(--gold);
+}
+
+.detail-current-task p {
+  margin: 7px 0;
+  overflow-wrap: anywhere;
+}
+
+.detail-current-task dl {
+  margin: 8px 0 0;
+}
+
+.folder-browser-status {
+  padding: 4px 2px;
+  color: var(--paper-muted);
+  font-size: 11px;
+}
+
+.folder-browser-error {
+  color: #ffd6d1;
+}
+
+.folder-browser-columns {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-height: 180px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  padding: 2px 2px 8px;
+}
+
+.folder-browser-column,
+.folder-browser-loading-column {
+  display: flex;
+  flex: 0 0 230px;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+  border: 2px solid var(--stone-700);
+  scroll-snap-align: end;
+}
+
+.folder-browser-column-title {
+  flex: 0 0 auto;
+  padding: 8px 9px;
+  overflow: hidden;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.24);
+  border-bottom: 2px solid var(--stone-700);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-browser-loading-column {
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-browser-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.folder-browser-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--paper);
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 12px;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.folder-browser-entry span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-browser-entry.is-selected {
+  color: var(--outline);
+  background: var(--gold);
+}
+
+.folder-browser-next {
+  font-size: 17px;
+  line-height: 0.8;
+}
+
+.folder-browser-entry:hover,
+.folder-browser-entry:focus-visible {
+  color: #fff8e9;
+  background: var(--stone-700);
+  outline: none;
+}
+
+.folder-browser-empty {
+  padding: 7px 9px;
+  color: var(--paper-muted);
+  font-size: 11px;
+}
+
+.folder-browser-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.folder-browser-actions button {
+  min-height: 38px;
+  padding: 8px 14px;
+  color: var(--outline);
+  background: var(--paper);
+  border: 2px solid var(--outline);
+  border-radius: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--outline);
+}
+
+.folder-browser-cancel {
+  background: var(--stone-300) !important;
+}
+
+.folder-browser-select {
+  background: var(--gold) !important;
+}
+
+.folder-browser-select:disabled {
+  filter: saturate(0.35);
+  cursor: not-allowed;
+}
+
+.folder-browser-actions button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+@media (max-width: 620px) {
+  .folder-browser-backdrop {
+    padding: 10px;
+  }
+
+  .folder-browser-dialog {
+    height: min(620px, 92vh);
+    max-width: 100%;
+    padding: 12px;
+  }
+
+  .folder-browser-column,
+  .folder-browser-loading-column {
+    flex-basis: min(78vw, 260px);
+  }
 }
 
 .task-form button {
@@ -1175,6 +1609,18 @@ input[type="checkbox"] {
   text-transform: none;
 }
 
+.queue-item-dependency-details {
+  display: grid;
+  gap: 4px;
+  margin-top: 7px;
+  padding-top: 6px;
+  color: #ffd6d1;
+  border-top: 1px solid rgba(230, 106, 98, 0.45);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 @keyframes warning-flash {
   50% {
     background-color: var(--danger-dark);
@@ -1628,4 +2074,48 @@ input[type="checkbox"] {
 .auth-gate-form button:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
+}
+
+/* WorkspacePathInput lives inside .task-form, whose generic submit-button
+   rules appear later in this file. Keep these two utility buttons square and
+   leave all remaining row width to the editable path field. */
+.task-form .workspace-path-toggle,
+.task-form .workspace-path-browse {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  flex: 0 0 48px;
+  margin-top: 0;
+  padding: 0;
+  color: var(--paper);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-500);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--outline);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  clip-path: none;
+}
+
+.task-form .workspace-path-toggle:hover,
+.task-form .workspace-path-browse:hover {
+  border-color: var(--stone-300);
+  filter: none;
+  transform: none;
+  box-shadow: 2px 2px 0 var(--outline);
+}
+
+.task-form .workspace-path-browse {
+  font-family: system-ui, -apple-system, "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  line-height: 1;
+}
+
+.task-form .workspace-path-toggle:active,
+.task-form .workspace-path-browse:active {
+  transform: none;
 }

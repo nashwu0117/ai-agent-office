@@ -366,6 +366,8 @@ export interface OfficeSceneProps {
   roomBusy?: boolean[];
   selectedId: string | null;
   onSelect: (agentId: string) => void;
+  selectedMaster?: boolean;
+  onSelectMaster?: () => void;
   /** v0.22 Part C: which meeting room's table (if any) is currently selected, for the click-to-view transcript panel. */
   selectedRoom?: number | null;
   onSelectRoom?: (room: number) => void;
@@ -382,6 +384,8 @@ export function OfficeScene({
   roomBusy,
   selectedId,
   onSelect,
+  selectedMaster,
+  onSelectMaster,
   selectedRoom,
   onSelectRoom,
   masterPlanning,
@@ -414,6 +418,7 @@ export function OfficeScene({
   const roomBusyRef = useRef<boolean[]>(roomBusy ?? [false, false, false]);
   const selectedRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
+  const onSelectMasterRef = useRef(onSelectMaster);
   const selectedRoomRef = useRef<number | null>(selectedRoom ?? null);
   const onSelectRoomRef = useRef(onSelectRoom);
   const securityAlertRef = useRef<Set<string>>(securityAlertAgentIds ?? new Set());
@@ -427,6 +432,7 @@ export function OfficeScene({
   roomBusyRef.current = roomBusy ?? [false, false, false];
   selectedRef.current = selectedId;
   onSelectRef.current = onSelect;
+  onSelectMasterRef.current = onSelectMaster;
   selectedRoomRef.current = selectedRoom ?? null;
   onSelectRoomRef.current = onSelectRoom;
   securityAlertRef.current = securityAlertAgentIds ?? new Set();
@@ -539,7 +545,7 @@ export function OfficeScene({
       // v0.22 Part D: built once, independent of the `agents` array/
       // syncSprites — Master isn't a roster Agent, just a fixed, always-
       // rendered character at its own desk (see MASTER_SEAT).
-      masterBundleRef.current = buildMasterSprite(agentLayer, textures);
+      masterBundleRef.current = buildMasterSprite(agentLayer, textures, () => onSelectMasterRef.current?.());
 
       app.ticker.add((ticker) => {
         syncSprites(agentLayer, spritesRef.current, agentsRef.current, textures, onSelectRef.current);
@@ -573,23 +579,59 @@ export function OfficeScene({
   }, [t.lang]);
 
   return (
-    <section
-      ref={hostRef}
-      className="office-canvas"
-      style={{
-        "--office-width": `${officeWidth}px`,
-        "--office-title": JSON.stringify(t.officeCanvasTitle),
-      } as CSSProperties}
-      aria-labelledby="office-scene-heading"
-      aria-describedby="office-scene-summary"
-    >
-      <h2 id="office-scene-heading" className="sr-only">
-        {t.officeSceneHeading}
-      </h2>
-      <p id="office-scene-summary" className="sr-only">
-        {t.officeSceneSummary}
-      </p>
+    <>
+      <section
+        ref={hostRef}
+        className="office-canvas"
+        style={{
+          "--office-width": `${officeWidth}px`,
+          "--office-title": JSON.stringify(t.officeCanvasTitle),
+        } as CSSProperties}
+        aria-labelledby="office-scene-heading"
+        aria-describedby="office-scene-summary"
+      >
+        <h2 id="office-scene-heading" className="sr-only">
+          {t.officeSceneHeading}
+        </h2>
+        <p id="office-scene-summary" className="sr-only">
+          {t.officeSceneSummary}
+        </p>
+        <button
+          type="button"
+          className="office-resize-handle"
+          aria-label={`${t.officeResizeHandle}. ${t.officeResizeHint}`}
+          aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End"
+          title={t.officeResizeHint}
+          onPointerDown={startResize}
+          onPointerMove={continueResize}
+          onPointerUp={finishResize}
+          onPointerCancel={finishResize}
+          onKeyDown={resizeWithKeyboard}
+          onDoubleClick={() => setOfficeWidth(DEFAULT_OFFICE_WIDTH)}
+        >
+          <span aria-hidden="true">↘</span>
+        </button>
+      </section>
+      {/*
+       * v0.24 hotfix: these used to be an absolutely-positioned, invisible-
+       * until-focused overlay directly on top of the canvas above — see
+       * index.css's .agent-access-list comment for why that broke every
+       * activation path except sequential keyboard Tab travel, and why a
+       * normal always-visible row below the canvas (matching what
+       * officeSceneSummary already tells users to expect) is the fix.
+       */}
       <ul className="agent-access-list" aria-label={t.officeAgentsListLabel}>
+        <li>
+          <button
+            type="button"
+            aria-pressed={Boolean(selectedMaster)}
+            aria-label={t.masterCharacterLabel}
+            onClick={() => onSelectMaster?.()}
+          >
+            <span aria-hidden="true" className="agent-access-state agent-access-state-working">●</span>
+            {t.masterCharacterLabel}
+          </button>
+        </li>
         {agents.map((agent) => {
           const progress = progressByAgent[agent.id];
           const state = t.agentStateLabel(agent.state);
@@ -630,22 +672,7 @@ export function OfficeScene({
           );
         })}
       </ul>
-      <button
-        type="button"
-        className="office-resize-handle"
-        aria-label={`${t.officeResizeHandle}. ${t.officeResizeHint}`}
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End"
-        title={t.officeResizeHint}
-        onPointerDown={startResize}
-        onPointerMove={continueResize}
-        onPointerUp={finishResize}
-        onPointerCancel={finishResize}
-        onKeyDown={resizeWithKeyboard}
-        onDoubleClick={() => setOfficeWidth(DEFAULT_OFFICE_WIDTH)}
-      >
-        <span aria-hidden="true">↘</span>
-      </button>
-    </section>
+    </>
   );
 }
 
@@ -863,8 +890,11 @@ function drawMasterLabel(target: Graphics, text: string): void {
  * Built once at MASTER_SEAT and never navigates (see this function's own
  * scope note below on the one thing deliberately left out this round).
  */
-function buildMasterSprite(layer: Container, textures: Record<AssetKey, Texture>): MasterBundle {
+function buildMasterSprite(layer: Container, textures: Record<AssetKey, Texture>, onSelect: () => void): MasterBundle {
   const container = new Container();
+  container.eventMode = "static";
+  container.cursor = "pointer";
+  container.on("pointerdown", onSelect);
 
   const glow = new Graphics();
   container.addChild(glow);
