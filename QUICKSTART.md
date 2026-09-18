@@ -141,10 +141,12 @@ that every task will succeed — third-party backends can be flaky,
 rate-limited, or have since deprecated the configured model. If a task
 fails, check the agent's "Live CLI output" in the detail panel first.
 
-The `mock-openai` BackendProfile is a dev/test-only demo of the
-translated-backend proxy path — it needs `npm run mock-openai` (in
-`apps/server`) running locally by hand and isn't assigned to any agent by
-default; it isn't meant for real tasks.
+There's also a dev/test-only demo of the translated-backend proxy path
+(`npm run mock-openai` in `apps/server`) for anyone modifying that proxy
+code — it's not registered as a provider in the Backend & Credentials
+panel (v0.21.1: removed from there since it kept confusing operators who
+aren't touching that code), isn't assigned to any agent, and isn't meant
+for real tasks.
 
 ## 4. What needs a key first
 

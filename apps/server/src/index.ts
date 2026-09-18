@@ -77,18 +77,17 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
   // resurrect it as a "new default" on the next restart, the way it
   // correctly does for an id added by a genuinely newer version of this file.
   //
-  // v0.9 demo/test profile: a backend that only speaks OpenAI Chat
-  // Completions, proving the proxy's translation path (not just
-  // passthrough) end to end. Start apps/server/src/dev/mock-openai-backend.ts
-  // and point AI_OFFICE_BACKEND_MOCK_OPENAI_BASE_URL at it to exercise this —
-  // see docs/api-format-translation.md "Testing the translation path".
-  "mock-openai": {
-    id: "mock-openai",
-    label: "Mock OpenAI Backend (dev/test)",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_MOCK_OPENAI_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_MOCK_OPENAI_AUTH_TOKEN",
-    apiFormat: "openai-chat-completions",
-  },
+  // v0.21.1: the v0.9 "mock-openai" demo/test profile (a fake backend that
+  // only spoke OpenAI Chat Completions, used to prove the proxy's
+  // translation path itself works, end to end) was removed from this
+  // operator-facing list at the operator's request — it kept showing up in
+  // the Backend & Credentials panel with no clear explanation of what it
+  // was, and it's not one of their real providers. The dev tool it pointed
+  // at (apps/server/src/dev/mock-openai-backend.ts, `npm run mock-openai`)
+  // and the translation-path test it enables are untouched — see
+  // docs/api-format-translation.md "Testing the translation path" — this
+  // just stops it from being permanently registered where every operator
+  // session sees it.
 
   // v0.13: three independent NVIDIA NIM backends (each its own API key, so
   // usage/quota is tracked separately per agent). Same apiFormat as the
