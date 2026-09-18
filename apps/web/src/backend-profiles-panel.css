@@ -67,6 +67,24 @@
   font-size: 1.05rem;
 }
 
+/* v0.21.3: section heading + a "Refresh" button on the same line. */
+.bp-section-header-row {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: space-between;
+}
+
+.bp-section-header-row h3 {
+  margin: 0;
+}
+
+.bp-section-header-row button {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+}
+
 .bp-hint {
   color: #a7adbe;
   font-size: 0.85rem;
@@ -403,6 +421,18 @@
 .bp-login-detail h4,
 .bp-provider-form-header h4 {
   margin: 0 0 0.5rem;
+}
+
+.bp-login-detail-status {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.bp-login-detail-status button {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
 }
 
 .bp-provider-form-header {

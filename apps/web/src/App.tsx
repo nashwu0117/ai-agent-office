@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, BackendProfileClientInfo, CredentialSourceStatus, Task } from "@ai-office/core";
 import { KNOWN_CAPABILITIES } from "@ai-office/core";
-import { OfficeClient, submitGoal, submitTask } from "./ws/client.js";
+import { OfficeClient, fetchCredentialStatuses, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
 import { BackendProfilesPanel } from "./BackendProfilesPanel.js";
 import { useLanguage } from "./i18n/language-context.js";
@@ -625,6 +625,7 @@ export default function App() {
         backendProfiles={backendProfiles}
         defaultBackendProfile={defaultBackendProfile}
         agents={agents}
+        onRefreshCredentials={() => fetchCredentialStatuses().then(setCredentialStatuses)}
       />
     </div>
   );

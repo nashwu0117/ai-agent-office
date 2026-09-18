@@ -7,12 +7,8 @@
 // differences between English and Chinese as plain, readable code in each
 // language's own branch instead of a shared template mini-language.
 //
-// Not covered here: the pixel-art canvas in OfficeScene (zone signs, the
-// company mark, task-bubble text) and a few decorative CSS ::before/::after
-// HUD labels in index.css. Both are English-only bitmap/CSS content with no
-// CJK glyphs available, so localizing them would mean drawing a second
-// pixel font — out of scope for this pass. Everything else a user reads
-// (forms, panels, queue, agent detail, announcements) is bilingual.
+// Static labels in the pixel-art canvas are localized too; live CLI progress
+// remains the agent's original message.
 
 export type Lang = "zh-TW" | "en";
 
@@ -106,10 +102,19 @@ export interface Translations {
   runtimeLabel: (runtime: string) => string;
   apiFormatLabel: (format: string) => string;
 
-  // OfficeScene accessible fallback (the canvas itself stays decorative/English)
+  // OfficeScene accessible fallback and localized canvas labels
   officeSceneHeading: string;
   officeSceneSummary: string;
   officeAgentsListLabel: string;
+  officeCanvasTitle: string;
+  officeZoneReception: string;
+  officeZoneOpenOffice: string;
+  officeZonePantry: string;
+  officeZoneMeetingRoom: (room: number) => string;
+  officeWorkingMessage: string;
+  officeWaitingMessage: string;
+  officeResizeHandle: string;
+  officeResizeHint: string;
   agentAccessLabel: (agentId: string, state: string, progress?: string) => string;
 
   // BackendProfilesPanel
@@ -404,6 +409,15 @@ const en: Translations = {
   officeSceneSummary:
     "The pixel-art canvas is decorative. Use the following agent buttons to open the same agent details with a keyboard or screen reader.",
   officeAgentsListLabel: "Office agents",
+  officeCanvasTitle: "LIVE OFFICE  //  FLOOR 01",
+  officeZoneReception: "RECEPTION",
+  officeZoneOpenOffice: "OPEN OFFICE",
+  officeZonePantry: "PANTRY",
+  officeZoneMeetingRoom: (room) => `MEETING ${room}`,
+  officeWorkingMessage: "WORKING...",
+  officeWaitingMessage: "WAITING FOR WORKSPACE...",
+  officeResizeHandle: "Resize the live office",
+  officeResizeHint: "Drag to resize proportionally. Arrow keys resize; double-click resets.",
   agentAccessLabel: (agentId, state, progress) =>
     `${agentId}, ${state}${progress ? `, ${progress}` : ""}. Open agent details.`,
 
@@ -622,6 +636,15 @@ const zhTW: Translations = {
   officeSceneHeading: "即時辦公室代理狀態",
   officeSceneSummary: "這個像素風畫布僅為裝飾效果。請使用下方的代理按鈕,以鍵盤或螢幕報讀器開啟相同的代理詳細資料。",
   officeAgentsListLabel: "辦公室代理",
+  officeCanvasTitle: "即時辦公室  //  一樓",
+  officeZoneReception: "接待區",
+  officeZoneOpenOffice: "開放辦公區",
+  officeZonePantry: "茶水間",
+  officeZoneMeetingRoom: (room) => `會議室 ${room}`,
+  officeWorkingMessage: "正在處理任務…",
+  officeWaitingMessage: "等待工作區…",
+  officeResizeHandle: "調整即時辦公室大小",
+  officeResizeHint: "拖曳可等比例縮放；方向鍵可調整大小，按兩下可重設。",
   agentAccessLabel: (agentId, state, progress) => `${agentId},${state}${progress ? `,${progress}` : ""}。開啟代理詳細資料。`,
 
   closeBackendPanel: "關閉後端與憑證面板",

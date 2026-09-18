@@ -194,3 +194,22 @@ export async function revealBackendProfileSecret(id: string): Promise<{ baseUrl:
   }
   return { baseUrl: body.baseUrl ?? null, authToken: body.authToken ?? null };
 }
+
+/**
+ * v0.21.3: manual re-check for the login-based credential sources (Claude
+ * Code/OpenCode/Codex/Cline) — the "refresh" button next to each in
+ * BackendProfilesPanel. GET /api/credentials already existed and always
+ * calls CredentialRouter.listStatuses() fresh (each source's own
+ * isAvailable() re-runs its check, e.g. re-reading a session file from
+ * disk) — this was just never wired up to anything after the initial page
+ * load/WS snapshot, so a login done *after* opening the app never showed
+ * up without a full reload.
+ */
+export async function fetchCredentialStatuses(): Promise<CredentialSourceStatus[]> {
+  const res = await fetch("/api/credentials");
+  const body = await res.json().catch(() => []);
+  if (!res.ok) {
+    throw new Error((body as { error?: string })?.error ?? `request failed with status ${res.status}`);
+  }
+  return body as CredentialSourceStatus[];
+}

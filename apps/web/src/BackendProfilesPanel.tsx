@@ -44,7 +44,8 @@ interface LoginProvider {
   id: string;
   labelEn: string;
   labelZh: string;
-  credentialSourceId: string;
+  /** v0.21.3: one login can have more than one real credential source (e.g. Cline: an env var OR a `cline auth` session) — available if ANY of these is. */
+  credentialSourceIds: string[];
   loginCommand: string;
 }
 
@@ -58,28 +59,31 @@ const LOGIN_PROVIDERS: LoginProvider[] = [
     id: "official-claude-code",
     labelEn: "Claude Code (official)",
     labelZh: "Claude Code 官方",
-    credentialSourceId: "claude-code-cli-session",
+    credentialSourceIds: ["claude-code-cli-session"],
     loginCommand: "claude auth login",
   },
   {
     id: "official-opencode",
     labelEn: "OpenCode CLI",
     labelZh: "OpenCode CLI",
-    credentialSourceId: "opencode-cli-session",
+    credentialSourceIds: ["opencode-cli-session"],
     loginCommand: "opencode auth login",
   },
   {
     id: "official-codex",
     labelEn: "Codex CLI",
     labelZh: "Codex CLI",
-    credentialSourceId: "codex-cli-session",
+    credentialSourceIds: ["codex-cli-session"],
     loginCommand: "codex login",
   },
   {
     id: "official-cline",
     labelEn: "Cline CLI",
     labelZh: "Cline CLI",
-    credentialSourceId: "cline-key-primary",
+    // v0.21.3: cline-cli-session (a real `cline auth` OAuth session, see
+    // factory.ts's hasClineOAuthSession) added alongside the pre-existing
+    // CLINE_API_KEY env var source — either one makes this usable.
+    credentialSourceIds: ["cline-key-primary", "cline-cli-session"],
     loginCommand: "cline auth (or set CLINE_API_KEY)",
   },
 ];
@@ -154,6 +158,10 @@ function ModelField({
 
 const RESERVED_HEADER_NAMES = new Set(["x-api-key", "authorization", "host"]);
 
+function isLoginProviderAvailable(provider: LoginProvider, credentialStatuses: CredentialSourceStatus[]): boolean {
+  return provider.credentialSourceIds.some((id) => credentialStatuses.find((s) => s.id === id)?.available);
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -162,9 +170,19 @@ interface Props {
   /** v0.13 Part E: profile id every not-otherwise-pinned claude-code agent currently falls back to, or null for "official". */
   defaultBackendProfile: string | null;
   agents: Agent[];
+  /** v0.21.3: re-checks the login-based credential sources (see fetchCredentialStatuses's own doc comment) — the "refresh" button next to each. */
+  onRefreshCredentials: () => Promise<void>;
 }
 
-export function BackendProfilesPanel({ open, onClose, credentialStatuses, backendProfiles, defaultBackendProfile, agents }: Props) {
+export function BackendProfilesPanel({
+  open,
+  onClose,
+  credentialStatuses,
+  backendProfiles,
+  defaultBackendProfile,
+  agents,
+  onRefreshCredentials,
+}: Props) {
   const { t } = useLanguage();
   const masterCliSession = credentialStatuses.find((source) => source.id === "claude-code-cli-session");
 
@@ -172,6 +190,20 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
   const [assigningAgentId, setAssigningAgentId] = useState<string | null>(null);
   const [defaultError, setDefaultError] = useState<string | null>(null);
   const [settingDefault, setSettingDefault] = useState(false);
+
+  const [refreshingCredentials, setRefreshingCredentials] = useState(false);
+  const [refreshCredentialsError, setRefreshCredentialsError] = useState<string | null>(null);
+  async function handleRefreshCredentials() {
+    setRefreshingCredentials(true);
+    setRefreshCredentialsError(null);
+    try {
+      await onRefreshCredentials();
+    } catch (err) {
+      setRefreshCredentialsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshingCredentials(false);
+    }
+  }
 
   // v0.21: combined list — login providers first, then every BackendProfile.
   const listItems = useMemo(
@@ -469,8 +501,18 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
         </section>
 
         <section className="bp-section" aria-labelledby="bp-credentials-heading">
-          <h3 id="bp-credentials-heading">{t.credentialSourcesHeading}</h3>
+          <div className="bp-section-header-row">
+            <h3 id="bp-credentials-heading">{t.credentialSourcesHeading}</h3>
+            <button type="button" onClick={handleRefreshCredentials} disabled={refreshingCredentials}>
+              {refreshingCredentials ? t.refreshingCredentialsButton : t.refreshCredentialsButton}
+            </button>
+          </div>
           <p className="bp-hint">{t.credentialSourcesHint}</p>
+          {refreshCredentialsError && (
+            <div className="bp-form-error" role="alert">
+              {refreshCredentialsError}
+            </div>
+          )}
           {credentialStatuses.length === 0 ? (
             <div className="bp-empty">{t.noCredentialSources}</div>
           ) : (
@@ -511,9 +553,7 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                 const id = item.kind === "login" ? item.provider.id : item.profile.id;
                 const label = item.kind === "login" ? (t.lang === "zh-TW" ? item.provider.labelZh : item.provider.labelEn) : item.profile.label;
                 const status =
-                  item.kind === "login"
-                    ? credentialStatuses.find((s) => s.id === item.provider.credentialSourceId)?.available
-                    : statusFor(item.profile);
+                  item.kind === "login" ? isLoginProviderAvailable(item.provider, credentialStatuses) : statusFor(item.profile);
                 return (
                   <button
                     key={id}
@@ -542,15 +582,23 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                 <div className="bp-login-detail">
                   <h4>{t.lang === "zh-TW" ? selectedLogin.labelZh : selectedLogin.labelEn}</h4>
                   <p className="bp-hint">{t.loginProviderNote}</p>
-                  <span
-                    className={`bp-status-pill ${
-                      credentialStatuses.find((s) => s.id === selectedLogin.credentialSourceId)?.available ? "bp-status-ok" : "bp-status-bad"
-                    }`}
-                  >
-                    {credentialStatuses.find((s) => s.id === selectedLogin.credentialSourceId)?.available
-                      ? t.cliSessionConfigured
-                      : t.cliSessionUnavailable}
-                  </span>
+                  <div className="bp-login-detail-status">
+                    <span
+                      className={`bp-status-pill ${
+                        isLoginProviderAvailable(selectedLogin, credentialStatuses) ? "bp-status-ok" : "bp-status-bad"
+                      }`}
+                    >
+                      {isLoginProviderAvailable(selectedLogin, credentialStatuses) ? t.cliSessionConfigured : t.cliSessionUnavailable}
+                    </span>
+                    <button type="button" onClick={handleRefreshCredentials} disabled={refreshingCredentials}>
+                      {refreshingCredentials ? t.refreshingCredentialsButton : t.refreshCredentialsButton}
+                    </button>
+                  </div>
+                  {refreshCredentialsError && (
+                    <div className="bp-form-error" role="alert">
+                      {refreshCredentialsError}
+                    </div>
+                  )}
                   <p>{t.loginCommandLabel(selectedLogin.loginCommand)}</p>
                 </div>
               )}
@@ -805,19 +853,31 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                     <td>{agent.id}</td>
                     <td>{t.runtimeLabel(agent.runtime)}</td>
                     <td>
-                      <select
-                        aria-label={t.backendProfileForAgentAriaLabel(agent.id)}
-                        value={agent.backendProfile ?? "official"}
-                        disabled={agent.runtime !== "claude-code" || assigningAgentId === agent.id}
-                        onChange={(e) => handleReassign(agent.id, e.target.value)}
-                      >
-                        <option value="official">{t.officialBackend}</option>
-                        {backendProfiles.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.label}
-                          </option>
-                        ))}
-                      </select>
+                      {agent.runtime === "claude-code" ? (
+                        <select
+                          aria-label={t.backendProfileForAgentAriaLabel(agent.id)}
+                          value={agent.backendProfile ?? "official"}
+                          disabled={assigningAgentId === agent.id}
+                          onChange={(e) => handleReassign(agent.id, e.target.value)}
+                        >
+                          <option value="official">{t.officialBackend}</option>
+                          {backendProfiles.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        // v0.21.3 fix: a non-claude-code agent (OpenCode/Codex/
+                        // Cline) never reads a BackendProfile/the Anthropic
+                        // credential pool at all — it authenticates entirely
+                        // through its own CLI's login (see the Backend &
+                        // Credentials panel's login-provider list above). The
+                        // disabled dropdown this replaced always showed
+                        // "Official (Anthropic)" here regardless of runtime,
+                        // which was simply wrong, not just visually confusing.
+                        <span className="bp-hint">{t.backendProfileNotApplicable}</span>
+                      )}
                     </td>
                   </tr>
                 ))}

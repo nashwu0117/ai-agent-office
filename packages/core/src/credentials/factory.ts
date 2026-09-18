@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { InMemoryCredentialRouter } from "./router.js";
@@ -30,6 +30,31 @@ function envSourcesFor(
 }
 
 /**
+ * v0.21.3: `cline auth` (interactive OAuth login, not CLINE_API_KEY) persists
+ * its session in `~/.cline/data/settings/providers.json` under
+ * `providers.cline.settings.auth.accessToken` — confirmed live against the
+ * actually-installed CLI (v3.0.62) on a machine with a real `cline auth`
+ * login already done, same "run the real binary, don't trust docs alone"
+ * verification standard as the rest of this file's checks. Before this,
+ * the only "cline" provider source was the CLINE_API_KEY env var
+ * (cline-key-primary below), so an operator who authenticated via
+ * `cline auth` instead of that env var saw "Unavailable" in the Backend &
+ * Credentials panel even though ClineAdapter's own CLINE_API_KEY-miss
+ * fallback (see packages/adapters/cline) meant tasks dispatched fine
+ * regardless — the panel was simply wrong, not the runtime.
+ */
+function hasClineOAuthSession(): boolean {
+  try {
+    const raw = readFileSync(join(homedir(), ".cline", "data", "settings", "providers.json"), "utf8");
+    const parsed = JSON.parse(raw) as { providers?: { cline?: { settings?: { auth?: { accessToken?: unknown } } } } };
+    const accessToken = parsed.providers?.cline?.settings?.auth?.accessToken;
+    return typeof accessToken === "string" && accessToken.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Builds the router this project actually runs with: every ANTHROPIC_API_KEY
  * / ANTHROPIC_AUTH_TOKEN (+ numbered _BACKUP variants) found in the current
  * environment under provider "anthropic" for worker CLI routing, plus one
@@ -53,6 +78,11 @@ export function createDefaultCredentialRouter(onChange?: (statuses: CredentialSo
     // sources" panel (as Available/Unavailable) rather than silently vanish
     // whenever CLINE_API_KEY isn't set yet.
     ...envSourcesFor("CLINE_API_KEY", "cline", "cline-key", true),
+    // v0.21.3: see hasClineOAuthSession's own doc comment — this is the
+    // fallback ClineAdapter already silently relies on; now the credential
+    // status panel can actually see it too instead of only ever showing
+    // the CLINE_API_KEY env var's own state.
+    new StaticCredentialSource("cline-cli-session", "cline", hasClineOAuthSession),
 
     // Claude Code CLI can authenticate via `claude auth` login session
     // instead of an env var (see README) — there is no reliable way to
