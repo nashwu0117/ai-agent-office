@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, BackendProfileClientInfo, CredentialSourceStatus, Task } from "@ai-office/core";
 import { KNOWN_CAPABILITIES } from "@ai-office/core";
-import { OfficeClient, fetchCredentialStatuses, submitGoal, submitTask } from "./ws/client.js";
+import { OfficeClient, assignTaskToAgent, fetchCredentialStatuses, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
 import { BackendProfilesPanel } from "./BackendProfilesPanel.js";
 import { useLanguage } from "./i18n/language-context.js";
@@ -80,6 +80,22 @@ export default function App() {
   const [backendPanelOpen, setBackendPanelOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  // v0.22 Part A: direct "point at an agent" assignment, independent of the
+  // v0.3 capability-matching form above. Keyed by nothing extra — only one
+  // agent's detail panel (and therefore one assign form) is ever open at a
+  // time, since selectedId is a single value.
+  const [assignDescription, setAssignDescription] = useState("");
+  const [assignWorkspacePath, setAssignWorkspacePath] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  // Set instead of calling the API immediately when the targeted agent isn't
+  // "available" — holds the form values so "queue it" can submit exactly
+  // what the user typed, and "cancel" can discard them without a server call.
+  const [assignBusyPending, setAssignBusyPending] = useState<{
+    agentId: string;
+    description: string;
+    workspacePath: string;
+  } | null>(null);
   const clientRef = useRef<OfficeClient | null>(null);
   // The socket must survive language switches, so the message handler below
   // reads translations through this ref instead of depending on `t` and
@@ -278,6 +294,16 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Switching which agent's detail panel is open discards any in-progress
+  // assign form / busy-warning for the previous one, rather than letting a
+  // stale "queue it?" dialog carry over to a different agent.
+  useEffect(() => {
+    setAssignDescription("");
+    setAssignWorkspacePath("");
+    setAssignError(null);
+    setAssignBusyPending(null);
+  }, [selectedId]);
+
   const progressByAgent = useMemo(() => {
     const result: Record<string, string> = {};
     for (const [agentId, lines] of Object.entries(logsByAgent)) {
@@ -368,6 +394,32 @@ export default function App() {
     } finally {
       setGoalSubmitting(false);
     }
+  }
+
+  async function runAssign(agentId: string, description: string, workspacePathValue: string, queued: boolean) {
+    setAssignError(null);
+    setAssigning(true);
+    try {
+      await assignTaskToAgent(agentId, { description, workspacePath: workspacePathValue });
+      setAssignDescription("");
+      setAssignWorkspacePath("");
+      setAssignBusyPending(null);
+      setAnnouncement(t.announceTaskAssigned(agentId, queued));
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  function handleAssignSubmit(e: React.FormEvent, agent: Agent) {
+    e.preventDefault();
+    setAssignError(null);
+    if (agent.state !== "available") {
+      setAssignBusyPending({ agentId: agent.id, description: assignDescription, workspacePath: assignWorkspacePath });
+      return;
+    }
+    void runAssign(agent.id, assignDescription, assignWorkspacePath, false);
   }
 
   return (
@@ -536,7 +588,8 @@ export default function App() {
               {t.taskResultsHeading}
             </h2>
             {completions.map((c) => {
-              const goalId = tasksById[c.taskId]?.goalId;
+              const task = tasksById[c.taskId];
+              const goalId = task?.goalId;
               const kind = c.ok ? "ok" : c.securityViolation ? "security" : c.authFailure ? "auth" : c.backendProfileError ? "backend" : "fail";
               return (
                 <article key={c.key} className={`completion-card ${kind}`}>
@@ -547,6 +600,9 @@ export default function App() {
                     {c.ok ? "✓" : c.securityViolation ? "⚠" : c.authFailure ? "🔑" : c.backendProfileError ? "⚙" : "✕"}
                   </span>{" "}
                   <strong>{t.completionTitle(kind)}</strong>
+                  {task && (
+                    <span className={`task-source-badge task-source-${task.source}`}>{t.taskSourceLabel(task.source)}</span>
+                  )}
                   <div>{c.summary}</div>
                   <div className="completion-meta">{t.completionMeta(c.agentId, c.filesChanged)}</div>
                 </article>
@@ -559,6 +615,72 @@ export default function App() {
           {selectedAgent && (
             <>
               <h2>{selectedAgent.id}</h2>
+
+              <form
+                className="task-form assign-form"
+                onSubmit={(e) => handleAssignSubmit(e, selectedAgent)}
+                aria-labelledby="assign-form-heading"
+              >
+                <h3 id="assign-form-heading" className="form-heading">
+                  {t.assignFormHeading(selectedAgent.id)}
+                </h3>
+                <p className="assign-form-hint">{t.assignFormHint}</p>
+                <label className="sr-only" htmlFor="assign-description">
+                  {t.assignDescriptionLabel}
+                </label>
+                <textarea
+                  id="assign-description"
+                  placeholder={t.assignDescriptionPlaceholder}
+                  value={assignDescription}
+                  onChange={(e) => setAssignDescription(e.target.value)}
+                  rows={2}
+                  required
+                />
+                <label className="sr-only" htmlFor="assign-workspace-path">
+                  {t.assignWorkspaceLabel}
+                </label>
+                <input
+                  id="assign-workspace-path"
+                  type="text"
+                  placeholder={t.assignWorkspacePlaceholder}
+                  value={assignWorkspacePath}
+                  onChange={(e) => setAssignWorkspacePath(e.target.value)}
+                  required
+                />
+                <button type="submit" disabled={assigning}>
+                  {assigning ? t.assignSubmitting : t.assignSubmit}
+                </button>
+                {assignError && (
+                  <div className="form-error" role="alert">
+                    {assignError}
+                  </div>
+                )}
+                {assignBusyPending && assignBusyPending.agentId === selectedAgent.id && (
+                  <div className="assign-busy-warning" role="alert">
+                    <p>{t.assignBusyWarning(selectedAgent.id, t.agentStateLabel(selectedAgent.state))}</p>
+                    <div className="assign-busy-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void runAssign(
+                            assignBusyPending.agentId,
+                            assignBusyPending.description,
+                            assignBusyPending.workspacePath,
+                            true
+                          )
+                        }
+                        disabled={assigning}
+                      >
+                        {t.assignBusyQueueButton}
+                      </button>
+                      <button type="button" className="assign-busy-cancel" onClick={() => setAssignBusyPending(null)}>
+                        {t.assignBusyCancelButton}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </form>
+
               <dl>
                 <dt>{t.detailRuntime}</dt>
                 <dd>{t.runtimeLabel(selectedAgent.runtime)}</dd>
@@ -625,8 +747,15 @@ export default function App() {
                     className={`queue-item queue-item-${task.status}`}
                     style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
                   >
-                    <div className="queue-item-title">{task.title}</div>
-                    <div className="queue-item-meta">{t.queueNeeds(task.requiredCapabilities.map((cap) => t.capabilityLabel(cap)))}</div>
+                    <div className="queue-item-title">
+                      {task.title} <span className={`task-source-badge task-source-${task.source}`}>{t.taskSourceLabel(task.source)}</span>
+                    </div>
+                    {task.pinnedAgentId && (
+                      <div className="queue-item-meta">→ {task.pinnedAgentId}</div>
+                    )}
+                    {!task.pinnedAgentId && (
+                      <div className="queue-item-meta">{t.queueNeeds(task.requiredCapabilities.map((cap) => t.capabilityLabel(cap)))}</div>
+                    )}
                     {task.status === "pending" && (
                       <div className="queue-item-meta">
                         <strong>{t.queuePendingLabel}</strong>{" "}

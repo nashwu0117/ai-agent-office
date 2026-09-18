@@ -491,6 +491,37 @@ app.post("/api/tasks", dispatchLimiter, async (req, res) => {
   }
 });
 
+// v0.22 Part A: point a task directly at one named agent, bypassing capability
+// matching entirely — see Orchestrator.assignTaskToAgent. A busy agent is not
+// an error: the task is created "pending" and Orchestrator.scheduleDispatch's
+// pinnedAgentId branch means it only ever waits for this one agent, acting as
+// their personal queue. The client already has this agent's live state from
+// the WS stream and is expected to warn the operator before calling this when
+// the agent isn't "available" (see build prompt Part A.2) — this route itself
+// always accepts and queues.
+app.post("/api/agents/:id/assign", dispatchLimiter, (req, res) => {
+  const agent = orchestrator.getAgent(req.params.id);
+  if (!agent) {
+    res.status(404).json({ error: `Unknown agent "${req.params.id}"` });
+    return;
+  }
+  const { description, workspacePath, title } = req.body ?? {};
+  if (typeof description !== "string" || !description.trim()) {
+    res.status(400).json({ error: "description is required" });
+    return;
+  }
+  if (typeof workspacePath !== "string" || !workspacePath.trim()) {
+    res.status(400).json({ error: "workspacePath is required" });
+    return;
+  }
+  try {
+    const task = orchestrator.assignTaskToAgent(agent.id, { description, workspacePath, title });
+    res.status(202).json(task);
+  } catch (err) {
+    res.status(409).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // Separate from POST /api/tasks above: the manual "user picks capabilities"
 // path is unchanged and stays fully available. This path hands the whole
 // decomposition + capability judgment to the Master instead.

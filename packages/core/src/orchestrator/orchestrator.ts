@@ -14,6 +14,12 @@ export interface SubmitTaskInput {
   goalId?: string;
 }
 
+export interface AssignTaskInput {
+  description: string;
+  workspacePath: string;
+  title?: string;
+}
+
 export interface SubmitTaskBatchItem {
   description: string;
   workspacePath: string;
@@ -156,6 +162,10 @@ export class Orchestrator {
     return [...this.tasks.values()];
   }
 
+  getTask(taskId: string): Task | undefined {
+    return this.tasks.get(taskId);
+  }
+
   private setAgentState(agent: Agent, state: AgentState, taskId?: string): void {
     agent.state = state;
     agent.updatedAt = this.now();
@@ -189,7 +199,47 @@ export class Orchestrator {
       workspacePath: input.workspacePath,
       requiredCapabilities: input.requiredCapabilities ?? [],
       status: "pending",
+      source: "auto",
       goalId: input.goalId,
+      createdAt: this.now(),
+      updatedAt: this.now(),
+    };
+    this.tasks.set(task.id, task);
+    this.broadcast({ type: "task_updated", task });
+
+    this.scheduleDispatch();
+
+    return task;
+  }
+
+  /**
+   * v0.22 Part A: hands a task directly to `agentId`, bypassing
+   * isSubset/eligibleCapabilities matching entirely — the user is pointing at
+   * a specific employee, not describing what capability the work needs. The
+   * task starts "pending" like any other and is picked up by the very next
+   * scheduleDispatch, but scheduleDispatch's pinnedAgentId branch (below)
+   * means it can only ever be dispatched to this one agent. If that agent is
+   * currently busy, this simply queues behind whatever they're already
+   * doing — acting as a personal, per-agent FIFO queue with no separate data
+   * structure, since the global pending-task scan already re-checks it on
+   * every dispatch cycle. Throws only for an unknown agent id; a busy agent
+   * is never an error here; a caller that wants "warn me, then let me choose
+   * queue-or-cancel" (see build prompt Part A.2) makes that decision before
+   * calling this, using the agent state it already has client-side.
+   */
+  assignTaskToAgent(agentId: string, input: AssignTaskInput): Task {
+    if (!this.agents.has(agentId)) {
+      throw new Error(`Unknown agent "${agentId}"`);
+    }
+    const task: Task = {
+      id: defaultIdGen("task"),
+      title: input.title ?? input.description.slice(0, 60),
+      description: input.description,
+      workspacePath: input.workspacePath,
+      requiredCapabilities: [],
+      status: "pending",
+      source: "manual",
+      pinnedAgentId: agentId,
       createdAt: this.now(),
       updatedAt: this.now(),
     };
@@ -218,6 +268,7 @@ export class Orchestrator {
       workspacePath: input.workspacePath,
       requiredCapabilities: input.requiredCapabilities ?? [],
       status: "pending",
+      source: "master",
       goalId: input.goalId,
       createdAt,
       updatedAt: createdAt,
@@ -279,6 +330,13 @@ export class Orchestrator {
    * match it can find in one pass. Called after a submit and after any
    * agent becomes available again — never serialized behind a single
    * in-flight task, so N matches can start in the same tick.
+   *
+   * v0.22: a task with pinnedAgentId (see assignTaskToAgent) skips
+   * isSubset/eligibleCapabilities matching entirely and is only ever
+   * considered against that one named agent — this is what makes a pinned
+   * task behave like a personal queue: it just stays "pending" (unmatched)
+   * every cycle until that specific agent is "available" again, however many
+   * other agents free up in the meantime.
    */
   private scheduleDispatch(): void {
     const pending = [...this.tasks.values()]
@@ -286,10 +344,12 @@ export class Orchestrator {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
     for (const task of pending) {
-      const agent = [...this.agents.values()].find(
-        (a) => a.state === "available" && isSubset(task.requiredCapabilities, a.eligibleCapabilities)
-      );
-      if (!agent) continue;
+      const agent = task.pinnedAgentId
+        ? this.agents.get(task.pinnedAgentId)
+        : [...this.agents.values()].find(
+            (a) => a.state === "available" && isSubset(task.requiredCapabilities, a.eligibleCapabilities)
+          );
+      if (!agent || agent.state !== "available") continue;
 
       task.assignedAgentId = agent.id;
       agent.capabilities = task.requiredCapabilities;
@@ -359,27 +419,32 @@ export class Orchestrator {
           : null;
 
       if (violation) {
-        await this.workspaceGuard!.revert(violation).catch(() => {});
+        const reason =
+          `Workspace isolation violation: execution modified ${violation.paths.length} path(s) ` +
+          `outside its assigned workspacePath (auto-reverted): ${violation.paths.join(", ")}`;
+        task.resultSummary = reason;
+        task.resultFilesChanged = [];
         this.setTaskStatus(task, "failed");
         this.setAgentState(agent, "error", task.id);
         this.broadcast({
           type: "task_failed",
           taskId: task.id,
           agentId: agent.id,
-          reason:
-            `Workspace isolation violation: execution modified ${violation.paths.length} path(s) ` +
-            `outside its assigned workspacePath (auto-reverted): ${violation.paths.join(", ")}`,
+          reason,
           securityViolation: true,
           affectedPaths: violation.paths,
         });
       } else if (exitCode === 0) {
+        const summary = `Completed "${task.title}" in ${(durationMs / 1000).toFixed(1)}s`;
+        task.resultSummary = summary;
+        task.resultFilesChanged = [...filesChanged];
         this.setTaskStatus(task, "done");
         this.setAgentState(agent, "done", task.id);
         this.broadcast({
           type: "task_completed",
           taskId: task.id,
           agentId: agent.id,
-          summary: `Completed "${task.title}" in ${(durationMs / 1000).toFixed(1)}s`,
+          summary,
           filesChanged: [...filesChanged],
         });
       } else {
@@ -390,19 +455,23 @@ export class Orchestrator {
         // re-running with a fixed credential would help. This is a stderr
         // heuristic only, not a structured error classification.
         const authFailure = isAuthFailureMessage(lastErrorMessage);
+        const reason = authFailure
+          ? `Authentication failed while running "${agent.runtime}": ${lastErrorMessage}`
+          : `Process exited with code ${exitCode}`;
+        task.resultSummary = reason;
+        task.resultFilesChanged = [...filesChanged];
         this.setTaskStatus(task, "failed");
         this.setAgentState(agent, "error", task.id);
         this.broadcast({
           type: "task_failed",
           taskId: task.id,
           agentId: agent.id,
-          reason: authFailure
-            ? `Authentication failed while running "${agent.runtime}": ${lastErrorMessage}`
-            : `Process exited with code ${exitCode}`,
+          reason,
           authFailure: authFailure || undefined,
         });
       }
     } catch (err) {
+      task.resultSummary = err instanceof Error ? err.message : String(err);
       this.setTaskStatus(task, "failed");
       this.setAgentState(agent, "error", task.id);
       // A BackendProfileError (see credentials/backend-profile.ts) is thrown

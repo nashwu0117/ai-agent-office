@@ -105,6 +105,23 @@ export async function submitTask(input: {
   }
 }
 
+/** v0.22 Part A: assign a task directly to one agent, bypassing capability matching. See apps/server's POST /api/agents/:id/assign. */
+export async function assignTaskToAgent(
+  agentId: string,
+  input: { description: string; workspacePath: string; title?: string }
+): Promise<Task> {
+  const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/assign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+  return body as Task;
+}
+
 export async function submitGoal(input: { goal: string; workspacePath: string }): Promise<void> {
   const res = await fetch("/api/goals", {
     method: "POST",

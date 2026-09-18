@@ -215,6 +215,48 @@ export interface Translations {
   backendProfileForAgentAriaLabel: (agentId: string) => string;
   backendProfileNotApplicable: string;
 
+  // v0.22 Part A: direct "point at an agent" assignment, bypassing capability
+  // matching — see the assign mini-form inside the agent detail panel.
+  taskSourceLabel: (source: "auto" | "manual" | "master") => string;
+  assignFormHeading: (agentId: string) => string;
+  assignFormHint: string;
+  assignDescriptionLabel: string;
+  assignDescriptionPlaceholder: string;
+  assignWorkspaceLabel: string;
+  assignWorkspacePlaceholder: string;
+  assignSubmitting: string;
+  assignSubmit: string;
+  assignBusyWarning: (agentId: string, state: string) => string;
+  assignBusyQueueButton: string;
+  assignBusyCancelButton: string;
+  announceTaskAssigned: (agentId: string, queued: boolean) => string;
+
+  // v0.22 Part B: Master Brain backend selector.
+  masterBrainSelectorHeading: string;
+  masterBrainSelectorHint: string;
+  masterBrainOptionLabel: (id: string) => string;
+  masterBrainSelectorSaving: string;
+  masterBrainSelectorSaved: string;
+  masterBrainCredentialMissing: (label: string, hint: string) => string;
+
+  // v0.22 Part C: meeting-room handoff visualization + click-to-view transcript.
+  meetingRoomStatusBusy: string;
+  meetingRoomStatusIdle: string;
+  meetingRoomTableAriaLabel: (room: number, busy: boolean) => string;
+  meetingRoomPanelHeading: (room: number) => string;
+  meetingRoomNoTranscript: string;
+  meetingRoomFromLabel: string;
+  meetingRoomToLabel: string;
+  meetingRoomHandoffTaskLabel: string;
+  meetingRoomMessageLabel: string;
+  meetingRoomTimeLabel: string;
+  closeMeetingRoomPanel: string;
+
+  // v0.22 Part D: Master's own visible character in the office scene.
+  masterCharacterLabel: string;
+  masterIdleBubble: string;
+  masterPlanningBubble: string;
+
   // v0.18: access-auth login gate — see AuthGate.tsx.
   loginHeading: string;
   loginDescription: string;
@@ -526,6 +568,48 @@ const en: Translations = {
   backendProfileForAgentAriaLabel: (agentId) => `Backend profile for ${agentId}`,
   backendProfileNotApplicable: "N/A — this runtime authenticates through its own CLI login, not a BackendProfile",
 
+  taskSourceLabel: (source) =>
+    source === "manual" ? "Manually assigned" : source === "master" ? "Master-planned" : "Auto-matched",
+  assignFormHeading: (agentId) => `Assign a task directly to ${agentId}`,
+  assignFormHint: "Bypasses capability matching entirely — this exact agent will do it, whatever their eligible capabilities are.",
+  assignDescriptionLabel: "Task description",
+  assignDescriptionPlaceholder: "e.g. Rename the config file and update its one import",
+  assignWorkspaceLabel: "Workspace folder path",
+  assignWorkspacePlaceholder: "Local folder path, e.g. /home/you/some-project",
+  assignSubmitting: "Assigning…",
+  assignSubmit: "Assign to this agent",
+  assignBusyWarning: (agentId, state) =>
+    `${agentId} is currently busy (${state}). Queue this task for them — it'll start as soon as they're free — or cancel and pick someone else.`,
+  assignBusyQueueButton: "Queue it for them",
+  assignBusyCancelButton: "Cancel",
+  announceTaskAssigned: (agentId, queued) =>
+    queued ? `Task queued for ${agentId}; they're currently busy.` : `Task assigned directly to ${agentId}.`,
+
+  masterBrainSelectorHeading: "Master Brain backend",
+  masterBrainSelectorHint:
+    "Which backend drives the single Master planner's plan()/summarize() calls. Takes effect on the next goal submitted; persists across restarts.",
+  masterBrainOptionLabel: (id) =>
+    id === "claude-code" ? "Claude Code CLI (Claude.ai subscription login)" : id === "codex" ? "Codex CLI (ChatGPT/API login)" : id,
+  masterBrainSelectorSaving: "Saving…",
+  masterBrainSelectorSaved: "Saved — the next goal will use this backend.",
+  masterBrainCredentialMissing: (label, hint) => `${label} has no usable login session yet. ${hint}`,
+
+  meetingRoomStatusBusy: "In session",
+  meetingRoomStatusIdle: "Idle",
+  meetingRoomTableAriaLabel: (room, busy) => `Meeting room ${room} table, ${busy ? "in session" : "idle"} — click for the transcript`,
+  meetingRoomPanelHeading: (room) => `Meeting Room ${room}`,
+  meetingRoomNoTranscript: "No handoff has happened in this room yet.",
+  meetingRoomFromLabel: "From",
+  meetingRoomToLabel: "To",
+  meetingRoomHandoffTaskLabel: "Handoff",
+  meetingRoomMessageLabel: "Message",
+  meetingRoomTimeLabel: "Time",
+  closeMeetingRoomPanel: "Close",
+
+  masterCharacterLabel: "MASTER",
+  masterIdleBubble: "Standing by",
+  masterPlanningBubble: "Planning…",
+
   loginHeading: "AI Office — sign in",
   loginDescription: "This is being accessed from outside localhost, so a password is required.",
   loginNoPasswordConfigured:
@@ -751,6 +835,46 @@ const zhTW: Translations = {
   colBackendProfile: "後端設定檔",
   backendProfileForAgentAriaLabel: (agentId) => `${agentId} 的後端設定檔`,
   backendProfileNotApplicable: "不適用——這個執行環境是透過自己的 CLI 登入驗證,不是後端設定檔",
+
+  taskSourceLabel: (source) => (source === "manual" ? "手動指派" : source === "master" ? "Master 拆解" : "系統自動配對"),
+  assignFormHeading: (agentId) => `直接指派任務給 ${agentId}`,
+  assignFormHint: "完全略過能力配對——不論這位員工目前的 eligibleCapabilities 是什麼,都會是他來做。",
+  assignDescriptionLabel: "任務描述",
+  assignDescriptionPlaceholder: "例如:把設定檔重新命名,並更新唯一一處的匯入路徑",
+  assignWorkspaceLabel: "工作區資料夾路徑",
+  assignWorkspacePlaceholder: "本機資料夾路徑,例如 /home/you/some-project",
+  assignSubmitting: "指派中…",
+  assignSubmit: "指派給這位員工",
+  assignBusyWarning: (agentId, state) =>
+    `${agentId} 目前忙碌中(${state})。可以把這個任務排進他的個人佇列——等他忙完會自動接手——或取消改點別人。`,
+  assignBusyQueueButton: "排進他的佇列",
+  assignBusyCancelButton: "取消",
+  announceTaskAssigned: (agentId, queued) =>
+    queued ? `任務已排入 ${agentId} 的佇列,他目前忙碌中。` : `任務已直接指派給 ${agentId}。`,
+
+  masterBrainSelectorHeading: "Master Brain 後端",
+  masterBrainSelectorHint: "決定唯一的 Master 規劃者呼叫 plan()/summarize() 時使用哪個後端。從下一次提交高階目標開始生效;會持久保存,重啟後仍在。",
+  masterBrainOptionLabel: (id) =>
+    id === "claude-code" ? "Claude Code CLI(Claude.ai 訂閱登入)" : id === "codex" ? "Codex CLI(ChatGPT/API 登入)" : id,
+  masterBrainSelectorSaving: "儲存中…",
+  masterBrainSelectorSaved: "已儲存——下一次規劃會使用這個後端。",
+  masterBrainCredentialMissing: (label, hint) => `${label} 目前沒有可用的登入工作階段。${hint}`,
+
+  meetingRoomStatusBusy: "會議進行中",
+  meetingRoomStatusIdle: "空閒中",
+  meetingRoomTableAriaLabel: (room, busy) => `第 ${room} 會議室的桌子,${busy ? "會議進行中" : "空閒中"}——點擊查看交接內容`,
+  meetingRoomPanelHeading: (room) => `第 ${room} 會議室`,
+  meetingRoomNoTranscript: "這間會議室目前還沒有發生過交接。",
+  meetingRoomFromLabel: "交接方",
+  meetingRoomToLabel: "接手方",
+  meetingRoomHandoffTaskLabel: "交接內容",
+  meetingRoomMessageLabel: "訊息",
+  meetingRoomTimeLabel: "時間",
+  closeMeetingRoomPanel: "關閉",
+
+  masterCharacterLabel: "MASTER",
+  masterIdleBubble: "待命中",
+  masterPlanningBubble: "規劃中…",
 
   loginHeading: "AI Office — 登入",
   loginDescription: "目前是從 localhost 以外的來源連進來,需要輸入密碼才能繼續。",
