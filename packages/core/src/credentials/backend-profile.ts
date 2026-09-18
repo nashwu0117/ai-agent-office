@@ -15,6 +15,67 @@
  * `claude` process gets its own isolated environment, so two agents with
  * different backendProfiles never share mutable state.
  */
+
+/**
+ * v0.21: the model "roles" a claude-code agent's CLI can request — Sonnet,
+ * Opus, and Haiku are Anthropic's own long-standing model-family names;
+ * Fable is included per the operator's current lineup (see AGENT_ROSTER's
+ * v0.21 comment in apps/server/src/index.ts). "subagent" is not a model
+ * family — it is Claude Code's own sub-task delegation, which by default
+ * requests a cheaper model than whatever the parent conversation is using.
+ * See RoleModelMap's own comment for exactly how (and how imperfectly) each
+ * of these is actually detected at the proxy layer — this is a real,
+ * wire-level best-effort match, not a guess dressed up as a mechanism.
+ */
+export type AgentRole = "sonnet" | "opus" | "fable" | "haiku" | "subagent";
+
+export const AGENT_ROLES: AgentRole[] = ["sonnet", "opus", "fable", "haiku", "subagent"];
+
+/**
+ * v0.21: per-role upstream model id overrides for a BackendProfile — e.g.
+ * "when this profile's agent's CLI asks for Sonnet, actually send
+ * 'meta/llama-3.1-70b-instruct' upstream instead". Stored as plain strings,
+ * not env-var *names* like baseUrlEnvVar/authTokenEnvVar/modelOverrideEnvVar
+ * above — a model id is never a secret (see modelOverrideEnvVar's own doc
+ * comment on why *that* field went through env-var indirection: it's about
+ * letting an operator point at a value they'd already set up as an env var,
+ * not about hiding it), so there is no reason to make this any harder to
+ * read or edit than the plain string it is.
+ *
+ * Detection at the proxy (apps/server/src/proxy-server.ts's resolveRoleModel):
+ * sonnet/opus/haiku/fable are matched by a case-insensitive substring test
+ * against the incoming request's own `model` field (e.g. a request for
+ * "claude-sonnet-4-5-..." matches "sonnet"). This is a real signal — it's
+ * exactly the model family the CLI actually asked for — not a heuristic
+ * guess. "subagent" has no equivalent wire-level signal: Claude Code's
+ * outbound request for a subagent's own model choice is not distinguishable
+ * from an ordinary request for that same model family purely from the HTTP
+ * request this proxy sees. So `subagent`'s mapping, if set, is used only as
+ * the catch-all for a request whose model string matches none of the four
+ * family substrings above — a documented, honest fallback, not a genuine
+ * "this specific call is a subagent" detector.
+ */
+export type RoleModelMap = Partial<Record<AgentRole, string>>;
+
+/**
+ * v0.21: extra static request headers a profile's upstream needs beyond the
+ * auth token this server already injects (x-api-key) — e.g. a required
+ * pinned API version header some third-party gateway demands. Never a
+ * substitute for the Base URL / API key fields: proxy-server.ts applies
+ * these as additions on top of the credential it resolves from
+ * baseUrlEnvVar/authTokenEnvVar, not instead of it.
+ */
+export type CustomHeaders = Record<string, string>;
+
+/**
+ * v0.21: a JSON object shallow-merged into the outgoing request body (after
+ * role/model resolution) for a profile that needs a fixed extra parameter
+ * some upstreams require (e.g. a vendor-specific flag). Applied on both the
+ * "anthropic" passthrough and "openai-chat-completions" translated paths —
+ * see proxy-server.ts's applyCustomBody.
+ */
+export type CustomBodyOverride = Record<string, unknown>;
+
 export interface BackendProfile {
   /** Matches Agent.backendProfile and the key this profile is registered under. */
   id: string;
@@ -56,8 +117,26 @@ export interface BackendProfile {
    * set and has a value) — no longer openai-chat-completions-only. Undefined
    * means "no override", the original v0.9 behavior.
    *
+   * v0.21: kept as a legacy blanket override, now consulted *after*
+   * roleModelMap/fallbackModel below by resolveRoleModel — still useful for
+   * a profile that just wants "always send this one model id" without
+   * bothering with per-role mapping at all.
    */
   modelOverrideEnvVar?: string;
+  /** v0.21: see RoleModelMap. Undefined/empty means no per-role mapping is configured. */
+  roleModelMap?: RoleModelMap;
+  /**
+   * v0.21: the model id to send when a request's role can't be resolved
+   * from roleModelMap (no substring match, and no `subagent` entry to catch
+   * it) — the "退而求其次要打的模型" the v0.21 build prompt asks for. Consulted
+   * before the legacy modelOverrideEnvVar so a profile that sets both gets
+   * the more specific/newer field's behavior.
+   */
+  fallbackModel?: string;
+  /** v0.21: see CustomHeaders. */
+  customHeaders?: CustomHeaders;
+  /** v0.21: see CustomBodyOverride. */
+  customBodyOverride?: CustomBodyOverride;
 }
 
 /** Keyed by BackendProfile.id. "official"/undefined is the implicit default and never appears here — it means "use CredentialRouter as before, unchanged". */
@@ -87,6 +166,14 @@ export interface BackendProfileClientInfo {
    * Undefined when modelOverrideEnvVar is unset or empty.
    */
   currentModel?: string;
+  /** v0.21: see RoleModelMap. Sent as-is — never a secret. */
+  roleModelMap?: RoleModelMap;
+  /** v0.21: see BackendProfile.fallbackModel. */
+  fallbackModel?: string;
+  /** v0.21: see CustomHeaders. Sent as-is — header values here are never the profile's own auth credential (that stays server-side, see baseUrlEnvVar/authTokenEnvVar's own comments). */
+  customHeaders?: CustomHeaders;
+  /** v0.21: see CustomBodyOverride. */
+  customBodyOverride?: CustomBodyOverride;
   /** Whether both baseUrlEnvVar and authTokenEnvVar are currently set (non-empty) on this server's process, AND apiFormat isn't "unset" — never proves the values are valid credentials, only present and structurally usable. */
   available: boolean;
 }

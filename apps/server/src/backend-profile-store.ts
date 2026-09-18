@@ -1,6 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { BackendProfile, BackendProfileClientInfo, BackendProfileRegistry } from "@ai-office/core";
+import {
+  AGENT_ROLES,
+  type AgentRole,
+  type BackendProfile,
+  type BackendProfileClientInfo,
+  type BackendProfileRegistry,
+  type CustomBodyOverride,
+  type CustomHeaders,
+  type RoleModelMap,
+} from "@ai-office/core";
 import { upsertEnvVar } from "./env-file-store.js";
 
 // v0.21: "unset" is a real, persistable state (see BackendProfile.apiFormat's
@@ -41,6 +50,10 @@ export interface BackendProfileInput {
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
   modelOverrideEnvVar?: string;
+  roleModelMap?: RoleModelMap;
+  fallbackModel?: string;
+  customHeaders?: CustomHeaders;
+  customBodyOverride?: CustomBodyOverride;
 }
 
 export interface BackendProfileUpdate {
@@ -49,6 +62,10 @@ export interface BackendProfileUpdate {
   baseUrlEnvVar?: string;
   authTokenEnvVar?: string;
   modelOverrideEnvVar?: string;
+  roleModelMap?: RoleModelMap;
+  fallbackModel?: string;
+  customHeaders?: CustomHeaders;
+  customBodyOverride?: CustomBodyOverride;
 }
 
 /**
@@ -149,6 +166,16 @@ export class BackendProfileStore {
       baseUrlEnvVar: patch.baseUrlEnvVar ?? existing.baseUrlEnvVar,
       authTokenEnvVar: patch.authTokenEnvVar ?? existing.authTokenEnvVar,
       modelOverrideEnvVar: patch.modelOverrideEnvVar ?? existing.modelOverrideEnvVar,
+      // v0.21: these four are always taken from the patch when the caller
+      // includes the key at all (even an explicit {} to clear one) —
+      // undefined-means-"keep existing" would make it impossible to ever
+      // clear a role mapping or custom header/body back to empty from the
+      // UI. See index.ts's PUT route for how it distinguishes "field
+      // omitted" from "field explicitly cleared".
+      roleModelMap: "roleModelMap" in patch ? patch.roleModelMap : existing.roleModelMap,
+      fallbackModel: "fallbackModel" in patch ? patch.fallbackModel : existing.fallbackModel,
+      customHeaders: "customHeaders" in patch ? patch.customHeaders : existing.customHeaders,
+      customBodyOverride: "customBodyOverride" in patch ? patch.customBodyOverride : existing.customBodyOverride,
     });
     this.registry[id] = merged;
     this.persist();
@@ -170,6 +197,10 @@ export class BackendProfileStore {
     const authTokenEnvVar = this.resolveEnvVarField(id, "AUTH_TOKEN", rawAuthToken);
     const rawModelOverride = input.modelOverrideEnvVar?.trim();
     const modelOverrideEnvVar = rawModelOverride ? this.resolveEnvVarField(id, "MODEL", rawModelOverride) : undefined;
+    const roleModelMap = this.validateRoleModelMap(input.roleModelMap);
+    const fallbackModel = input.fallbackModel?.trim() || undefined;
+    const customHeaders = this.validateCustomHeaders(input.customHeaders);
+    const customBodyOverride = this.validateCustomBodyOverride(input.customBodyOverride);
     return {
       id,
       label,
@@ -177,7 +208,53 @@ export class BackendProfileStore {
       baseUrlEnvVar,
       authTokenEnvVar,
       ...(modelOverrideEnvVar ? { modelOverrideEnvVar } : {}),
+      ...(roleModelMap ? { roleModelMap } : {}),
+      ...(fallbackModel ? { fallbackModel } : {}),
+      ...(customHeaders ? { customHeaders } : {}),
+      ...(customBodyOverride ? { customBodyOverride } : {}),
     };
+  }
+
+  /** v0.21: drops empty-string entries (the UI's "no override for this role" state) rather than persisting them. */
+  private validateRoleModelMap(input: RoleModelMap | undefined): RoleModelMap | undefined {
+    if (!input) return undefined;
+    const out: RoleModelMap = {};
+    for (const [role, model] of Object.entries(input) as [AgentRole, string | undefined][]) {
+      if (!AGENT_ROLES.includes(role)) {
+        throw new BackendProfileValidationError(`Unknown role "${role}" in roleModelMap — must be one of: ${AGENT_ROLES.join(", ")}.`);
+      }
+      const trimmed = model?.trim();
+      if (trimmed) out[role] = trimmed;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  private validateCustomHeaders(input: CustomHeaders | undefined): CustomHeaders | undefined {
+    if (!input) return undefined;
+    const out: CustomHeaders = {};
+    for (const [key, value] of Object.entries(input)) {
+      const trimmedKey = key.trim();
+      if (!trimmedKey) continue;
+      if (/[\r\n]/.test(trimmedKey) || /[\r\n]/.test(value)) {
+        throw new BackendProfileValidationError("Custom header names/values can't contain line breaks.");
+      }
+      const lower = trimmedKey.toLowerCase();
+      if (lower === "x-api-key" || lower === "authorization" || lower === "host") {
+        throw new BackendProfileValidationError(
+          `Custom headers can't override "${trimmedKey}" — that's set from the profile's own Base URL/API key fields, not a custom header.`
+        );
+      }
+      out[trimmedKey] = value;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  private validateCustomBodyOverride(input: CustomBodyOverride | undefined): CustomBodyOverride | undefined {
+    if (!input) return undefined;
+    if (typeof input !== "object" || Array.isArray(input)) {
+      throw new BackendProfileValidationError("customBodyOverride must be a JSON object (key/value pairs merged into the request body).");
+    }
+    return Object.keys(input).length > 0 ? input : undefined;
   }
 
   /**
@@ -233,6 +310,10 @@ function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
     authTokenEnvVar: profile.authTokenEnvVar,
     ...(profile.modelOverrideEnvVar ? { modelOverrideEnvVar: profile.modelOverrideEnvVar } : {}),
     ...(currentModel ? { currentModel } : {}),
+    ...(profile.roleModelMap ? { roleModelMap: profile.roleModelMap } : {}),
+    ...(profile.fallbackModel ? { fallbackModel: profile.fallbackModel } : {}),
+    ...(profile.customHeaders ? { customHeaders: profile.customHeaders } : {}),
+    ...(profile.customBodyOverride ? { customBodyOverride: profile.customBodyOverride } : {}),
     // v0.21: "unset" apiFormat is never available — see BackendProfile.apiFormat's doc comment.
     available: profile.apiFormat !== "unset" && Boolean(baseUrl?.trim()) && Boolean(authToken?.trim()),
   };

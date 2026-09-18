@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { BackendProfileRegistry } from "@ai-office/core";
+import type { AgentRole, BackendProfile, BackendProfileRegistry } from "@ai-office/core";
 import {
   anthropicRequestToOpenAI,
   openAIResponseToAnthropic,
@@ -109,7 +109,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
   const rawBody = await readRawBody(req);
 
   if (profile.apiFormat === "anthropic") {
-    await passthroughToAnthropic(req, res, baseUrl, authToken, rest + url.search, rawBody, profile.modelOverrideEnvVar);
+    await passthroughToAnthropic(req, res, baseUrl, authToken, rest + url.search, rawBody, profile);
     return;
   }
 
@@ -134,7 +134,58 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
     return;
   }
 
-  await proxyOpenAITranslated(res, baseUrl, authToken, anthropicReq, profile.modelOverrideEnvVar);
+  await proxyOpenAITranslated(res, baseUrl, authToken, anthropicReq, profile);
+}
+
+/**
+ * v0.21: resolves which upstream model id to actually send for this request,
+ * given the model the `claude` CLI itself asked for. Priority order:
+ * 1. An exact family match in roleModelMap (sonnet/opus/haiku/fable),
+ *    matched by case-insensitive substring against `requestedModel` — a
+ *    real wire-level signal, see RoleModelMap's own doc comment.
+ * 2. roleModelMap.subagent, as the catch-all for a requested model that
+ *    matched none of the four families above — documented best-effort, not
+ *    genuine subagent detection (again, see RoleModelMap's comment).
+ * 3. profile.fallbackModel.
+ * 4. The legacy modelOverrideEnvVar's current value (kept for profiles that
+ *    only ever configured the pre-v0.21 blanket override).
+ * 5. undefined — no rewrite, forward `requestedModel` unchanged.
+ */
+function resolveRoleModel(profile: BackendProfile, requestedModel: string | undefined): string | undefined {
+  const lower = requestedModel?.toLowerCase() ?? "";
+  const roleMap = profile.roleModelMap;
+  if (roleMap) {
+    const families: Array<[string, AgentRole]> = [
+      ["sonnet", "sonnet"],
+      ["opus", "opus"],
+      ["fable", "fable"],
+      ["haiku", "haiku"],
+    ];
+    for (const [needle, role] of families) {
+      if (lower.includes(needle) && roleMap[role]) return roleMap[role];
+    }
+    if (roleMap.subagent) return roleMap.subagent;
+  }
+  if (profile.fallbackModel) return profile.fallbackModel;
+  const legacy = profile.modelOverrideEnvVar && process.env[profile.modelOverrideEnvVar]?.trim();
+  return legacy || undefined;
+}
+
+/** v0.21: shallow-merges a profile's customBodyOverride into a parsed request body, after model resolution — see CustomBodyOverride's doc comment. */
+function applyCustomBody<T extends Record<string, unknown>>(body: T, override: Record<string, unknown> | undefined): T {
+  if (!override) return body;
+  return { ...body, ...override };
+}
+
+/** v0.21: adds a profile's extra static headers on top of whatever's already set — see CustomHeaders' doc comment for why the auth/host headers themselves are never eligible (enforced at validation time, not here, but this stays defensive). */
+function applyCustomHeaders(headers: Headers, custom: Record<string, string> | undefined): Headers {
+  if (!custom) return headers;
+  for (const [key, value] of Object.entries(custom)) {
+    const lower = key.toLowerCase();
+    if (lower === "x-api-key" || lower === "authorization" || lower === "host") continue;
+    headers.set(key, value);
+  }
+  return headers;
 }
 
 function readRawBody(req: IncomingMessage): Promise<Buffer> {
@@ -200,31 +251,34 @@ async function passthroughToAnthropic(
   authToken: string,
   pathAndQuery: string,
   rawBody: Buffer,
-  modelOverrideEnvVar: string | undefined
+  profile: BackendProfile
 ): Promise<void> {
   // v0.15: was a byte-for-byte pass-through with no way to redirect which
   // model id an "anthropic" apiFormat profile's key actually requests —
   // unlike the openai-chat-completions path below, which has always
-  // consulted modelOverrideEnvVar. Only parses/rewrites the body when an
-  // override is actually configured and has a value; with neither set, this
-  // still forwards `rawBody` completely unmodified, so a profile that never
-  // opts in keeps the exact byte-passthrough behavior documented above.
-  const modelOverride = modelOverrideEnvVar && process.env[modelOverrideEnvVar]?.trim();
+  // consulted modelOverrideEnvVar. v0.21: now goes through resolveRoleModel
+  // (role mapping > fallbackModel > legacy modelOverrideEnvVar) plus
+  // customBodyOverride. Only parses/rewrites the body when there's actually
+  // something to change; with none of those configured, this still forwards
+  // `rawBody` completely unmodified, so a profile that never opts in keeps
+  // the exact byte-passthrough behavior documented above.
   let body: Buffer = rawBody;
-  if (modelOverride) {
+  if (profile.roleModelMap || profile.fallbackModel || profile.modelOverrideEnvVar || profile.customBodyOverride) {
     try {
-      const parsed = JSON.parse(rawBody.toString("utf8")) as { model?: string };
-      parsed.model = modelOverride;
-      body = Buffer.from(JSON.stringify(parsed), "utf8");
+      const parsed = JSON.parse(rawBody.toString("utf8")) as { model?: string } & Record<string, unknown>;
+      const resolvedModel = resolveRoleModel(profile, parsed.model);
+      if (resolvedModel) parsed.model = resolvedModel;
+      const withOverride = applyCustomBody(parsed, profile.customBodyOverride);
+      body = Buffer.from(JSON.stringify(withOverride), "utf8");
     } catch {
-      // Not JSON (or no `model` field to rewrite) — fall back to the
-      // original bytes rather than fail the request over an optional override.
+      // Not JSON — fall back to the original bytes rather than fail the
+      // request over an optional override.
     }
   }
 
   const upstream = await fetch(`${baseUrl.replace(/\/$/, "")}${pathAndQuery}`, {
     method: "POST",
-    headers: buildUpstreamRequestHeaders(req, authToken),
+    headers: applyCustomHeaders(buildUpstreamRequestHeaders(req, authToken), profile.customHeaders),
     body: new Uint8Array(body),
   });
   res.writeHead(upstream.status, upstreamResponseHeaders(upstream.headers));
@@ -236,7 +290,7 @@ async function proxyOpenAITranslated(
   baseUrl: string,
   authToken: string,
   anthropicReq: AnthropicMessagesRequest,
-  modelOverrideEnvVar: string | undefined
+  profile: BackendProfile
 ): Promise<void> {
   const { request: openaiReq, droppedTools } = anthropicRequestToOpenAI(anthropicReq);
   if (droppedTools.length > 0) {
@@ -250,14 +304,21 @@ async function proxyOpenAITranslated(
   // OpenAI-format backend with its own model namespace. anthropicReq.model
   // (used below to build the translated response) is left untouched, so the
   // CLI still sees the model id it asked for, matching translate.ts's
-  // documented echo-back behavior.
-  const modelOverride = modelOverrideEnvVar && process.env[modelOverrideEnvVar]?.trim();
-  if (modelOverride) openaiReq.model = modelOverride;
+  // documented echo-back behavior. v0.21: resolution now goes through
+  // resolveRoleModel (role mapping > fallbackModel > legacy
+  // modelOverrideEnvVar) instead of modelOverrideEnvVar alone, and
+  // customBodyOverride is shallow-merged in afterward.
+  const resolvedModel = resolveRoleModel(profile, anthropicReq.model);
+  if (resolvedModel) openaiReq.model = resolvedModel;
+  const openaiReqWithOverride = applyCustomBody(openaiReq as unknown as Record<string, unknown>, profile.customBodyOverride);
 
   const upstream = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
-    body: JSON.stringify(openaiReq),
+    headers: applyCustomHeaders(
+      new Headers({ "content-type": "application/json", authorization: `Bearer ${authToken}` }),
+      profile.customHeaders
+    ),
+    body: JSON.stringify(openaiReqWithOverride),
   });
 
   if (!upstream.ok) {

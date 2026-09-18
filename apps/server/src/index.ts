@@ -19,7 +19,7 @@ import { CodexAdapter } from "@ai-office/adapter-codex";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 import { startFormatTranslationProxy } from "./proxy-server.js";
 import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
-import { BackendProfileStore, BackendProfileValidationError } from "./backend-profile-store.js";
+import { BackendProfileStore, BackendProfileValidationError, type BackendProfileUpdate } from "./backend-profile-store.js";
 import { DefaultBackendStore } from "./default-backend-store.js";
 import { requireAuth, registerAuthRoutes, isUpgradeRequestAuthenticated, logAuthStartupState } from "./auth.js";
 import { dispatchLimiter, modelsLimiter, generalApiLimiter } from "./rate-limits.js";
@@ -548,9 +548,26 @@ app.post("/api/backend-profiles", (req, res) => {
 });
 
 app.put("/api/backend-profiles/:id", (req, res) => {
-  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar } = req.body ?? {};
+  // v0.21: roleModelMap/fallbackModel/customHeaders/customBodyOverride added
+  // for the cc-switch-style single-provider editor (BackendProfilesPanel).
+  // Passed through as-is to BackendProfileStore.update, which distinguishes
+  // "key omitted from the body" (keep existing) from "key present" (replace,
+  // even with an empty object) — see its own comment on that `in` check.
+  const body = req.body ?? {};
+  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar } = body;
+  const patch: BackendProfileUpdate = {
+    label,
+    apiFormat,
+    baseUrlEnvVar,
+    authTokenEnvVar,
+    modelOverrideEnvVar,
+    ...("roleModelMap" in body ? { roleModelMap: body.roleModelMap } : {}),
+    ...("fallbackModel" in body ? { fallbackModel: body.fallbackModel } : {}),
+    ...("customHeaders" in body ? { customHeaders: body.customHeaders } : {}),
+    ...("customBodyOverride" in body ? { customBodyOverride: body.customBodyOverride } : {}),
+  };
   try {
-    backendProfileStore.update(req.params.id, { label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar });
+    backendProfileStore.update(req.params.id, patch);
     broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
     res.json(backendProfileStore.list().find((p) => p.id === req.params.id));
   } catch (err) {
