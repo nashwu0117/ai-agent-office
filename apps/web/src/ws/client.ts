@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AgentHandoff,
   BackendProfileClientInfo,
   CredentialSourceStatus,
   CustomBodyOverride,
@@ -22,6 +23,8 @@ export type ServerMessage =
       defaultBackendProfile?: string | null;
       /** v0.22 Part B: which backend currently drives the single Master planner — see apps/server/src/master-brain-store.ts. */
       masterBrain?: "claude-code" | "codex";
+      /** v0.22 Part C: recent dependency handoffs — see HandoffCoordinator. */
+      handoffs?: AgentHandoff[];
     };
 
 type Listener = (msg: ServerMessage) => void;

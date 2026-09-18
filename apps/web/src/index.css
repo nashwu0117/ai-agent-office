@@ -980,6 +980,22 @@ input[type="checkbox"] {
   box-shadow: inset 2px 0 0 var(--stone-700);
 }
 
+/* v0.22 Part C: the meeting-room transcript panel reuses .detail-panel but
+   needs its own close button since a room, unlike an agent, has no other
+   way to deselect it (an agent's own sprite click toggles selection). The
+   heading keeps its usual border/spacing from the shared rule below; this
+   just lays the close button out beside it instead of overriding those. */
+.detail-panel-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.detail-panel-header-row h2 {
+  flex: 1;
+}
+
 .detail-panel h2,
 .queue-panel h2 {
   margin: 0 0 16px;

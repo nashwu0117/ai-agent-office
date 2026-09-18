@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Agent, BackendProfileClientInfo, CredentialSourceStatus, Task } from "@ai-office/core";
+import type { Agent, AgentHandoff, BackendProfileClientInfo, CredentialSourceStatus, Task } from "@ai-office/core";
 import { KNOWN_CAPABILITIES } from "@ai-office/core";
 import { OfficeClient, assignTaskToAgent, fetchCredentialStatuses, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
@@ -78,6 +78,8 @@ export default function App() {
   const [backendProfiles, setBackendProfiles] = useState<BackendProfileClientInfo[]>([]);
   const [defaultBackendProfile, setDefaultBackendProfileState] = useState<string | null>(null);
   const [masterBrain, setMasterBrainState] = useState<"claude-code" | "codex">("claude-code");
+  const [handoffs, setHandoffs] = useState<AgentHandoff[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<number | null>(null);
   const [backendPanelOpen, setBackendPanelOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -116,12 +118,18 @@ export default function App() {
         setBackendProfiles(msg.backendProfiles ?? []);
         setDefaultBackendProfileState(msg.defaultBackendProfile ?? null);
         setMasterBrainState(msg.masterBrain ?? "claude-code");
+        setHandoffs(msg.handoffs ?? []);
         setAnnouncement(tRef.current.announceSnapshot(msg.agents.length, msg.tasks.length));
         return;
       }
 
       if (msg.type === "master_brain_changed") {
         setMasterBrainState(msg.masterBrain === "codex" ? "codex" : "claude-code");
+        return;
+      }
+
+      if (msg.type === "agent_handoff") {
+        setHandoffs((prev) => [...prev, msg.handoff].slice(-50));
         return;
       }
 
@@ -319,38 +327,68 @@ export default function App() {
     return result;
   }, [logsByAgent]);
 
-  // Agents dispatched from the same Master goal are the collaboration unit.
-  // Once at least two siblings are active, the scene sends them to one of
-  // three meeting rooms together; unrelated agents keep their desks or roam.
-  const collaborationRoomByAgent = useMemo(() => {
-    const groups = new Map<string, string[]>();
-    for (const agent of agents) {
-      const task = agent.currentTaskId ? tasksById[agent.currentTaskId] : undefined;
-      const active = ["assigned", "starting", "working", "waiting", "blocked"].includes(agent.state);
-      if (!active) continue;
-      // Master-decomposed tasks share goalId. For manually submitted tasks,
-      // active agents exchanging progress in the same workspace are the
-      // closest available collaboration signal.
-      const collaborationKey = task?.goalId
-        ? `goal:${task.goalId}`
-        : task?.workspacePath && progressByAgent[agent.id]
-          ? `workspace:${task.workspacePath}`
-          : undefined;
-      if (!collaborationKey) continue;
-      const group = groups.get(collaborationKey) ?? [];
-      group.push(agent.id);
-      groups.set(collaborationKey, group);
-    }
+  // v0.22 Part C: replaces the earlier goalId/workspace-sharing heuristic —
+  // meeting-room visits are now driven by real HandoffCoordinator events
+  // (packages/core/src/collaboration/handoff-coordinator.ts), each carrying
+  // actual from/to agent ids, task titles, and message text. Assignment to
+  // one of the 3 fixed rooms is greedy-round-robin by whichever room frees
+  // up soonest, computed once per new handoff (not per render): a room is
+  // "busy" for ROOM_VISUAL_DURATION_MS from the later of (the handoff's own
+  // createdAt, that room's previous occupant's end time), so a burst of more
+  // than 3 concurrent handoffs queues onto whichever room empties first
+  // instead of overlapping. This is purely a presentation-layer schedule —
+  // the handoff itself already happened and the dependent task was already
+  // dispatched by the time this runs (see HandoffCoordinator's own note on
+  // never slowing down v0.6 dependency dispatch); this only decides when/
+  // where the *visit* plays out on screen. A fixed few-second visit (rather
+  // than requiring the room to truly be free before an agent can "arrive")
+  // was chosen so a burst of handoffs can never turn into a real backlog —
+  // see the build prompt's own explicit tradeoff callout in Part C.2.
+  const ROOM_COUNT = 3;
+  const ROOM_VISUAL_DURATION_MS = 6000;
+  const roomSchedule = useMemo(() => {
+    const roomNextAvailable = new Array(ROOM_COUNT).fill(0);
+    const sorted = [...handoffs].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return sorted.map((handoff) => {
+      let room = 0;
+      for (let i = 1; i < ROOM_COUNT; i++) {
+        if (roomNextAvailable[i] < roomNextAvailable[room]) room = i;
+      }
+      const arrivalMs = new Date(handoff.createdAt).getTime();
+      const startAt = Math.max(arrivalMs, roomNextAvailable[room]);
+      const endAt = startAt + ROOM_VISUAL_DURATION_MS;
+      roomNextAvailable[room] = endAt;
+      return { handoff, room, startAt, endAt };
+    });
+  }, [handoffs]);
 
+  const collaborationRoomByAgent = useMemo(() => {
     const result: Record<string, number> = {};
-    [...groups.entries()]
-      .filter(([, ids]) => ids.length > 1)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .forEach(([, ids], groupIndex) => {
-        for (const agentId of ids) result[agentId] = groupIndex % 3;
-      });
+    for (const s of roomSchedule) {
+      if (now >= s.startAt && now < s.endAt) {
+        result[s.handoff.fromAgentId] = s.room;
+        result[s.handoff.toAgentId] = s.room;
+      }
+    }
     return result;
-  }, [agents, tasksById, progressByAgent]);
+  }, [roomSchedule, now]);
+
+  const roomBusy = useMemo(() => {
+    const busy = [false, false, false];
+    for (const s of roomSchedule) {
+      if (now >= s.startAt && now < s.endAt) busy[s.room] = true;
+    }
+    return busy;
+  }, [roomSchedule, now]);
+
+  // The most recently scheduled handoff for each room — shown by the
+  // click-to-view panel whether that room is currently in session or idle
+  // (build prompt Part C.4: "this room's current round, or its most recent").
+  const roomLatestHandoff = useMemo(() => {
+    const latest: Array<AgentHandoff | undefined> = [undefined, undefined, undefined];
+    for (const s of roomSchedule) latest[s.room] = s.handoff;
+    return latest;
+  }, [roomSchedule]);
 
   const queueItems = useMemo(
     () =>
@@ -468,8 +506,17 @@ export default function App() {
             agents={agents}
             progressByAgent={progressByAgent}
             collaborationRoomByAgent={collaborationRoomByAgent}
+            roomBusy={roomBusy}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedRoom(null);
+              setSelectedId(id);
+            }}
+            selectedRoom={selectedRoom}
+            onSelectRoom={(room) => {
+              setSelectedId(null);
+              setSelectedRoom(room);
+            }}
             securityAlertAgentIds={securityAlertAgents}
           />
 
@@ -618,7 +665,42 @@ export default function App() {
           </section>
         </main>
 
-        <aside className={`detail-panel ${selectedAgent ? "open" : ""}`} aria-label={t.agentDetailsAriaLabel}>
+        <aside
+          className={`detail-panel ${selectedAgent || selectedRoom !== null ? "open" : ""}`}
+          aria-label={t.agentDetailsAriaLabel}
+        >
+          {selectedRoom !== null && (
+            <>
+              <div className="detail-panel-header-row">
+                <h2>{t.meetingRoomPanelHeading(selectedRoom + 1)}</h2>
+                <button type="button" className="bp-close" onClick={() => setSelectedRoom(null)} aria-label={t.closeMeetingRoomPanel}>
+                  ✕
+                </button>
+              </div>
+              {roomLatestHandoff[selectedRoom] ? (
+                <>
+                  <dl>
+                    <dt>{t.meetingRoomFromLabel}</dt>
+                    <dd>{roomLatestHandoff[selectedRoom]!.fromAgentId}</dd>
+                    <dt>{t.meetingRoomToLabel}</dt>
+                    <dd>{roomLatestHandoff[selectedRoom]!.toAgentId}</dd>
+                    <dt>{t.meetingRoomHandoffTaskLabel}</dt>
+                    <dd>
+                      {roomLatestHandoff[selectedRoom]!.fromTaskTitle} → {roomLatestHandoff[selectedRoom]!.toTaskTitle}
+                    </dd>
+                    <dt>{t.meetingRoomTimeLabel}</dt>
+                    <dd>{new Date(roomLatestHandoff[selectedRoom]!.createdAt).toLocaleTimeString()}</dd>
+                  </dl>
+                  <h3>{t.meetingRoomMessageLabel}</h3>
+                  <div className="cli-log">
+                    <div className="cli-log-line">{roomLatestHandoff[selectedRoom]!.message}</div>
+                  </div>
+                </>
+              ) : (
+                <p className="assign-form-hint">{t.meetingRoomNoTranscript}</p>
+              )}
+            </>
+          )}
           {selectedAgent && (
             <>
               <h2>{selectedAgent.id}</h2>

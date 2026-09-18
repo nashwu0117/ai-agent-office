@@ -355,8 +355,13 @@ export interface OfficeSceneProps {
   progressByAgent: Record<string, string>;
   /** Active collaboration groups keyed by agent id and assigned to one of the three meeting rooms. */
   collaborationRoomByAgent?: Record<string, number>;
+  /** v0.22 Part C: whether each of the 3 fixed meeting rooms is currently in session — drives the busy/idle indicator by its sign. */
+  roomBusy?: boolean[];
   selectedId: string | null;
   onSelect: (agentId: string) => void;
+  /** v0.22 Part C: which meeting room's table (if any) is currently selected, for the click-to-view transcript panel. */
+  selectedRoom?: number | null;
+  onSelectRoom?: (room: number) => void;
   /** Agent ids with a just-happened workspace isolation violation — rendered as a distinct alert, not the normal error badge. */
   securityAlertAgentIds?: Set<string>;
 }
@@ -365,8 +370,11 @@ export function OfficeScene({
   agents,
   progressByAgent,
   collaborationRoomByAgent,
+  roomBusy,
   selectedId,
   onSelect,
+  selectedRoom,
+  onSelectRoom,
   securityAlertAgentIds,
 }: OfficeSceneProps) {
   const { t } = useLanguage();
@@ -393,15 +401,22 @@ export function OfficeScene({
   const agentsRef = useRef<Agent[]>(agents);
   const progressRef = useRef(progressByAgent);
   const collaborationRef = useRef(collaborationRoomByAgent ?? {});
+  const roomBusyRef = useRef<boolean[]>(roomBusy ?? [false, false, false]);
   const selectedRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
+  const selectedRoomRef = useRef<number | null>(selectedRoom ?? null);
+  const onSelectRoomRef = useRef(onSelectRoom);
   const securityAlertRef = useRef<Set<string>>(securityAlertAgentIds ?? new Set());
+  const roomOverlaysRef = useRef<RoomOverlay[]>([]);
 
   agentsRef.current = agents;
   progressRef.current = progressByAgent;
   collaborationRef.current = collaborationRoomByAgent ?? {};
+  roomBusyRef.current = roomBusy ?? [false, false, false];
   selectedRef.current = selectedId;
   onSelectRef.current = onSelect;
+  selectedRoomRef.current = selectedRoom ?? null;
+  onSelectRoomRef.current = onSelectRoom;
   securityAlertRef.current = securityAlertAgentIds ?? new Set();
 
   useEffect(() => {
@@ -502,6 +517,7 @@ export function OfficeScene({
       buildFloor(worldLayer, textures);
       buildPartitions(worldLayer, textures);
       buildDecor(worldLayer, textures, t);
+      roomOverlaysRef.current = buildMeetingRoomOverlays(worldLayer, (room) => onSelectRoomRef.current?.(room));
 
       const agentLayer = new Container();
       app.stage.addChild(agentLayer);
@@ -519,6 +535,7 @@ export function OfficeScene({
           t,
           ticker.deltaTime
         );
+        updateMeetingRoomOverlays(roomOverlaysRef.current, roomBusyRef.current, selectedRoomRef.current);
       });
     })();
 
@@ -529,6 +546,7 @@ export function OfficeScene({
       agentLayerRef.current = null;
       texturesRef.current = null;
       spritesRef.current.clear();
+      roomOverlaysRef.current = [];
     };
   }, [t.lang]);
 
@@ -565,6 +583,26 @@ export function OfficeScene({
                   ●
                 </span>
                 {agent.id} · {state}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <ul className="agent-access-list room-access-list" aria-label={t.officeSceneHeading}>
+        {[0, 1, 2].map((roomIndex) => {
+          const busy = roomBusy?.[roomIndex] ?? false;
+          return (
+            <li key={roomIndex}>
+              <button
+                type="button"
+                aria-pressed={selectedRoom === roomIndex}
+                aria-label={t.meetingRoomTableAriaLabel(roomIndex + 1, busy)}
+                onClick={() => onSelectRoom?.(roomIndex)}
+              >
+                <span aria-hidden="true" className={`agent-access-state ${busy ? "agent-access-state-working" : "agent-access-state-available"}`}>
+                  ●
+                </span>
+                {t.officeZoneMeetingRoom(roomIndex + 1)} · {busy ? t.meetingRoomStatusBusy : t.meetingRoomStatusIdle}
               </button>
             </li>
           );
@@ -709,6 +747,69 @@ function buildDecor(layer: Container, textures: Record<AssetKey, Texture>, t: Tr
   for (const [tx, ty] of PLANT_CELLS) {
     layer.addChild(drawPottedPlant(tx, ty));
   }
+}
+
+interface RoomOverlay {
+  /** Invisible, precisely over the two "table" furniture tiles — clicking anywhere else in the room does nothing, matching the build prompt's "click the room's table" (Part C.4). */
+  hitArea: Graphics;
+  /** The visible busy/idle light next to that room's own zone sign. */
+  statusDot: Graphics;
+}
+
+/**
+ * v0.22 Part C: one clickable hit-region + status light per fixed meeting
+ * room, built once (independent of the agent sprite pool, which changes
+ * shape every reconnect) and then only ever re-drawn per frame in
+ * updateMeetingRoomOverlays — never rebuilt, so a click handler registered
+ * here is never silently dropped by a later syncSprites pass.
+ */
+function buildMeetingRoomOverlays(layer: Container, onSelectRoom: (room: number) => void): RoomOverlay[] {
+  return MEETING_ROOMS.map((room, roomIndex) => {
+    const tableCells = room.furniture.slice(0, 2);
+    const minX = Math.min(...tableCells.map(([x]) => x));
+    const maxX = Math.max(...tableCells.map(([x]) => x)) + 1;
+    const minY = Math.min(...tableCells.map(([, y]) => y));
+    const maxY = Math.max(...tableCells.map(([, y]) => y)) + 1;
+    const topLeft = tileToScreen(minX, minY);
+    const bottomRight = tileToScreen(maxX, maxY);
+
+    const hitArea = new Graphics();
+    hitArea.rect(0, 0, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y).fill({ color: 0xffffff, alpha: 0.001 });
+    hitArea.position.set(topLeft.x, topLeft.y);
+    hitArea.eventMode = "static";
+    hitArea.cursor = "pointer";
+    hitArea.on("pointerdown", () => onSelectRoom(roomIndex));
+    layer.addChild(hitArea);
+
+    const statusDot = new Graphics();
+    const signPos = tileToScreen(room.anchor[0], 13.25);
+    statusDot.position.set(signPos.x + 58, signPos.y + 6);
+    layer.addChild(statusDot);
+
+    return { hitArea, statusDot };
+  });
+}
+
+/** Green when idle, pulsing amber when a handoff is in session, plus a bracket highlight when this room's transcript panel is open. */
+function drawRoomStatusDot(target: Graphics, busy: boolean, selected: boolean, phase: number): void {
+  target.clear();
+  if (selected) {
+    target.rect(-6, -6, 12, 2).fill({ color: 0xf4e4cb });
+    target.rect(-6, 4, 12, 2).fill({ color: 0xf4e4cb });
+    target.rect(-6, -6, 2, 12).fill({ color: 0xf4e4cb });
+    target.rect(4, -6, 2, 12).fill({ color: 0xf4e4cb });
+  }
+  const color = busy ? 0xf3c66b : 0x5fc98f;
+  const size = busy ? 6 + Math.round(Math.abs(Math.sin(phase * 5)) * 2) : 6;
+  target.rect(-size / 2, -size / 2, size, size).fill({ color: 0x181724 });
+  target.rect(-size / 2 + 1, -size / 2 + 1, size - 2, size - 2).fill({ color });
+}
+
+function updateMeetingRoomOverlays(overlays: RoomOverlay[], roomBusy: boolean[], selectedRoom: number | null): void {
+  const phase = performance.now() / 1000;
+  overlays.forEach((overlay, roomIndex) => {
+    drawRoomStatusDot(overlay.statusDot, roomBusy[roomIndex] ?? false, selectedRoom === roomIndex, phase);
+  });
 }
 
 function drawPottedPlant(tx: number, ty: number): Graphics {
