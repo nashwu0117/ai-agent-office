@@ -60,6 +60,13 @@ const VERTICAL_PARTITION_COLUMNS = [5, 26] as const;
 const MEETING_PARTITION_COLUMNS = [10, 21] as const;
 const VERTICAL_GAP_ROWS = new Set([6, 7]);
 
+// v0.22 Part D: Master's own fixed desk, in the reception zone's otherwise
+// clear lower-left corner — deliberately near the front of the office rather
+// than lined up with the ordinary worker desks, so it reads as a distinct
+// "corner office" spot rather than one more workstation.
+const MASTER_DESK: TilePoint = [2, 9];
+const MASTER_SEAT: TilePoint = [2.5, 10.5];
+
 const PLANT_CELLS: readonly TilePoint[] = [[0, 10], [27, 9], [31, 10]];
 const MEETING_ROOMS = [
   {
@@ -80,7 +87,7 @@ const MEETING_ROOMS = [
 ] as const;
 const BLOCKING_DECOR_CELLS: readonly TilePoint[] = [
   // Reception.
-  [2, 4], [2, 5], [0, 6],
+  [2, 4], [2, 5], [0, 6], MASTER_DESK,
   // Pantry / records.
   [27, 2], [31, 2], [29, 5], [28, 5], [30, 5], [31, 7],
   ...MEETING_ROOMS.flatMap((room) => room.furniture),
@@ -362,6 +369,8 @@ export interface OfficeSceneProps {
   /** v0.22 Part C: which meeting room's table (if any) is currently selected, for the click-to-view transcript panel. */
   selectedRoom?: number | null;
   onSelectRoom?: (room: number) => void;
+  /** v0.22 Part D: whether the Master character should show its planning state right now (v0.5's existing goal "planning" status) vs. idle standby. */
+  masterPlanning?: boolean;
   /** Agent ids with a just-happened workspace isolation violation — rendered as a distinct alert, not the normal error badge. */
   securityAlertAgentIds?: Set<string>;
 }
@@ -375,6 +384,7 @@ export function OfficeScene({
   onSelect,
   selectedRoom,
   onSelectRoom,
+  masterPlanning,
   securityAlertAgentIds,
 }: OfficeSceneProps) {
   const { t } = useLanguage();
@@ -408,6 +418,8 @@ export function OfficeScene({
   const onSelectRoomRef = useRef(onSelectRoom);
   const securityAlertRef = useRef<Set<string>>(securityAlertAgentIds ?? new Set());
   const roomOverlaysRef = useRef<RoomOverlay[]>([]);
+  const masterPlanningRef = useRef(masterPlanning ?? false);
+  const masterBundleRef = useRef<MasterBundle | null>(null);
 
   agentsRef.current = agents;
   progressRef.current = progressByAgent;
@@ -418,6 +430,7 @@ export function OfficeScene({
   selectedRoomRef.current = selectedRoom ?? null;
   onSelectRoomRef.current = onSelectRoom;
   securityAlertRef.current = securityAlertAgentIds ?? new Set();
+  masterPlanningRef.current = masterPlanning ?? false;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -523,6 +536,11 @@ export function OfficeScene({
       app.stage.addChild(agentLayer);
       agentLayerRef.current = agentLayer;
 
+      // v0.22 Part D: built once, independent of the `agents` array/
+      // syncSprites — Master isn't a roster Agent, just a fixed, always-
+      // rendered character at its own desk (see MASTER_SEAT).
+      masterBundleRef.current = buildMasterSprite(agentLayer, textures);
+
       app.ticker.add((ticker) => {
         syncSprites(agentLayer, spritesRef.current, agentsRef.current, textures, onSelectRef.current);
         tick(
@@ -536,6 +554,9 @@ export function OfficeScene({
           ticker.deltaTime
         );
         updateMeetingRoomOverlays(roomOverlaysRef.current, roomBusyRef.current, selectedRoomRef.current);
+        if (masterBundleRef.current) {
+          updateMasterSprite(masterBundleRef.current, masterPlanningRef.current, performance.now() / 1000, t);
+        }
       });
     })();
 
@@ -547,6 +568,7 @@ export function OfficeScene({
       texturesRef.current = null;
       spritesRef.current.clear();
       roomOverlaysRef.current = [];
+      masterBundleRef.current = null;
     };
   }, [t.lang]);
 
@@ -719,6 +741,12 @@ function buildDecor(layer: Container, textures: Record<AssetKey, Texture>, t: Tr
   placeTile(layer, textures.desk_monitor, 2, 4);
   placeTile(layer, textures.stool, 2, 5);
   placeTile(layer, textures.bookshelf, 0, 6);
+  // v0.22 Part D: Master's own desk — see MASTER_DESK/buildMasterSprite. A
+  // second desk_monitor tile here (not a special texture, since this asset
+  // pack has none reserved for a "boss desk") plus the character itself
+  // (gold tint, larger scale, permanent nameplate/status bubble) is what
+  // actually distinguishes Master from an ordinary workstation.
+  placeTile(layer, textures.desk_monitor, MASTER_DESK[0], MASTER_DESK[1]);
 
   // Main office: 15 spacious workstations across three rows.
   addZoneSign(layer, t.officeZoneOpenOffice, 15.5, 1.25, 0x5fc98f, t.lang);
@@ -810,6 +838,93 @@ function updateMeetingRoomOverlays(overlays: RoomOverlay[], roomBusy: boolean[],
   overlays.forEach((overlay, roomIndex) => {
     drawRoomStatusDot(overlay.statusDot, roomBusy[roomIndex] ?? false, selectedRoom === roomIndex, phase);
   });
+}
+
+interface MasterBundle {
+  container: Container;
+  body: Sprite;
+  bubble: Graphics;
+  bubbleText: string;
+  glow: Graphics;
+}
+
+/** A wide gold nameplate reading "MASTER" — deliberately not drawAgentLabel's narrower id-sized banner, and gold rather than that function's dark-red strip, so it doesn't read as just another agent id at a glance. */
+function drawMasterLabel(target: Graphics, text: string): void {
+  target.clear();
+  const width = text.length * 8 + 10;
+  target.rect(-Math.floor(width / 2) - 4, -3, width + 8, 17).fill({ color: 0x181724, alpha: 0.92 });
+  target.rect(-Math.floor(width / 2) - 4, -3, width + 8, 2).fill({ color: 0xf3c66b });
+  drawPixelText(target, text, { color: 0xf3c66b, unit: 2 });
+}
+
+/**
+ * v0.22 Part D: Master's own always-rendered character — not a roster
+ * Agent, so it never goes through syncSprites/tick's per-agent bookkeeping.
+ * Built once at MASTER_SEAT and never navigates (see this function's own
+ * scope note below on the one thing deliberately left out this round).
+ */
+function buildMasterSprite(layer: Container, textures: Record<AssetKey, Texture>): MasterBundle {
+  const container = new Container();
+
+  const glow = new Graphics();
+  container.addChild(glow);
+
+  // Reuses an ordinary worker sprite sheet (this asset pack has no separate
+  // "boss" character) but at a larger scale with a permanent gold tint —
+  // together with the nameplate and status bubble below, this is what marks
+  // it as Master rather than a 14th worker.
+  const body = new Sprite(textures[CHARACTER_KEYS[CHARACTER_KEYS.length - 1]]);
+  body.anchor.set(0.5, 1);
+  body.scale.set(ZOOM + 1);
+  body.tint = 0xf3c66b;
+  container.addChild(body);
+
+  const label = new Graphics();
+  container.addChild(label);
+
+  const bubble = new Graphics();
+  bubble.position.set(0, -TILE * (ZOOM + 1) - 9);
+  container.addChild(bubble);
+
+  const pos = tileToScreen(MASTER_SEAT[0], MASTER_SEAT[1]);
+  container.position.set(pos.x, pos.y);
+  layer.addChild(container);
+
+  drawMasterLabel(label, "MASTER");
+  label.position.set(0, 11);
+
+  return { container, body, bubble, bubbleText: "", glow };
+}
+
+/**
+ * Idle standby is drawn every bit as deliberately as the planning state —
+ * the build prompt explicitly calls out "must not go blank/disappear when
+ * there's nothing to do" (Part D.2) — rather than only rendering a bubble
+ * while planning and leaving Master silent the rest of the time.
+ *
+ * Scope note: Master does not walk to a meeting room even where Part C's
+ * navigation engine could technically carry it there — the build prompt
+ * marks that explicitly optional this round ("不強制要求"), and Master isn't
+ * a member of the `sprites` map the pathfinding/collision system operates
+ * on, so it also never yields to or blocks a worker's own path.
+ */
+function updateMasterSprite(bundle: MasterBundle, planning: boolean, phase: number, t: Translations): void {
+  const bob = Math.round(Math.sin(phase * 2.2) * 2);
+  bundle.body.y = bob;
+
+  bundle.glow.clear();
+  if (planning) {
+    const radius = 15 + Math.round(Math.abs(Math.sin(phase * 4)) * 4);
+    bundle.glow.circle(0, -14, radius).fill({ color: 0xf3c66b, alpha: 0.22 });
+  }
+
+  const text = planning ? t.masterPlanningBubble : t.masterIdleBubble;
+  if (bundle.bubbleText !== text) {
+    bundle.bubble.removeChildren().forEach((child) => child.destroy());
+    drawTaskBubble(bundle.bubble, text);
+    bundle.bubbleText = text;
+  }
+  bundle.bubble.visible = true;
 }
 
 function drawPottedPlant(tx: number, ty: number): Graphics {

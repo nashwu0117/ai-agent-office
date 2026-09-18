@@ -402,6 +402,12 @@ export default function App() {
 
   const goalsSorted = useMemo(() => Object.values(goalsById).sort((a, b) => b.createdAt - a.createdAt), [goalsById]);
 
+  // v0.22 Part D: drives the Master character's visible planning state in
+  // the office scene — true for as long as any goal is still in Master's
+  // plan() call (v0.5's existing "planning" status), independent of how many
+  // goals are queued.
+  const masterPlanning = useMemo(() => Object.values(goalsById).some((g) => g.status === "planning"), [goalsById]);
+
   const availableCredentialCount = credentialStatuses.filter((s) => s.available).length;
   const credentialStatusLabel = credentialStatuses
     .map((status) => t.credentialDetailLine(status.provider, status.id, status.available))
@@ -507,6 +513,7 @@ export default function App() {
             progressByAgent={progressByAgent}
             collaborationRoomByAgent={collaborationRoomByAgent}
             roomBusy={roomBusy}
+            masterPlanning={masterPlanning}
             selectedId={selectedId}
             onSelect={(id) => {
               setSelectedRoom(null);
