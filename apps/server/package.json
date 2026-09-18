@@ -13,6 +13,7 @@
     "@ai-office/adapter-claude-code": "*",
     "@ai-office/adapter-cline": "*",
     "@ai-office/adapter-master-anthropic": "*",
+    "@ai-office/adapter-master-codex": "*",
     "@ai-office/adapter-opencode": "*",
     "@ai-office/core": "*",
     "cookie": "^0.7.2",

@@ -77,6 +77,7 @@ export default function App() {
   const [credentialStatuses, setCredentialStatuses] = useState<CredentialSourceStatus[]>([]);
   const [backendProfiles, setBackendProfiles] = useState<BackendProfileClientInfo[]>([]);
   const [defaultBackendProfile, setDefaultBackendProfileState] = useState<string | null>(null);
+  const [masterBrain, setMasterBrainState] = useState<"claude-code" | "codex">("claude-code");
   const [backendPanelOpen, setBackendPanelOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -114,7 +115,13 @@ export default function App() {
         setCredentialStatuses(msg.credentials);
         setBackendProfiles(msg.backendProfiles ?? []);
         setDefaultBackendProfileState(msg.defaultBackendProfile ?? null);
+        setMasterBrainState(msg.masterBrain ?? "claude-code");
         setAnnouncement(tRef.current.announceSnapshot(msg.agents.length, msg.tasks.length));
+        return;
+      }
+
+      if (msg.type === "master_brain_changed") {
+        setMasterBrainState(msg.masterBrain === "codex" ? "codex" : "claude-code");
         return;
       }
 
@@ -787,6 +794,7 @@ export default function App() {
         credentialStatuses={credentialStatuses}
         backendProfiles={backendProfiles}
         defaultBackendProfile={defaultBackendProfile}
+        masterBrain={masterBrain}
         agents={agents}
         onRefreshCredentials={() => fetchCredentialStatuses().then(setCredentialStatuses)}
       />

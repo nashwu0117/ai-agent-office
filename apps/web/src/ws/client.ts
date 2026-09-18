@@ -20,6 +20,8 @@ export type ServerMessage =
       backendProfiles?: BackendProfileClientInfo[];
       /** v0.13 Part E: the global default backend profile id, or null for "official" — see apps/server/src/default-backend-store.ts. */
       defaultBackendProfile?: string | null;
+      /** v0.22 Part B: which backend currently drives the single Master planner — see apps/server/src/master-brain-store.ts. */
+      masterBrain?: "claude-code" | "codex";
     };
 
 type Listener = (msg: ServerMessage) => void;
@@ -175,6 +177,11 @@ export function setAgentBackendProfile(agentId: string, backendProfile: string |
 /** v0.13 Part E: the global default — see BackendProfilesPanel.tsx's "Default backend" section. */
 export function setDefaultBackendProfile(backendProfile: string | null): Promise<void> {
   return jsonRequest("/api/default-backend-profile", "PUT", { backendProfile });
+}
+
+/** v0.22 Part B: switch which backend drives the single Master planner. Rejected (409) by the server if that backend has no usable login session yet — see index.ts's PUT /api/master-brain. */
+export function setMasterBrain(masterBrain: "claude-code" | "codex"): Promise<void> {
+  return jsonRequest("/api/master-brain", "PUT", { masterBrain });
 }
 
 /** v0.15: refused (409) if any agent is still pinned to this profile — see index.ts's DELETE handler. */

@@ -31,7 +31,7 @@ function defaultIdGen(): string {
  */
 export class GoalCoordinator {
   private readonly orchestrator: Orchestrator;
-  private readonly master: MasterBrain;
+  private master: MasterBrain;
   private readonly broadcast: (event: OfficeEvent) => void;
   private readonly idGen: () => string;
   private readonly goals = new Map<string, TrackedGoal>();
@@ -41,6 +41,20 @@ export class GoalCoordinator {
     this.master = options.master;
     this.broadcast = options.broadcast;
     this.idGen = options.idGen ?? defaultIdGen;
+  }
+
+  /**
+   * v0.22 Part B: repoints the single Master at a different backend/model —
+   * see MasterBrainRegistry in apps/server. There is still only ever one
+   * Master running at a time (see the build prompt's explicit "no multiple
+   * Masters" scope note); this only swaps which implementation backs it.
+   * runGoal/finishGoal read `this.master` fresh on every call, so this takes
+   * effect starting with the next plan()/summarize() call; a goal whose
+   * plan() is already in flight when this is called keeps running against
+   * whichever backend it actually started on.
+   */
+  setMaster(master: MasterBrain): void {
+    this.master = master;
   }
 
   /** Kicks off async planning + dispatch and returns immediately with a goalId to track it by. */

@@ -5,6 +5,7 @@ import {
   revealBackendProfileSecret,
   setAgentBackendProfile,
   setDefaultBackendProfile,
+  setMasterBrain,
   updateBackendProfile,
 } from "./ws/client.js";
 import { useLanguage } from "./i18n/language-context.js";
@@ -169,6 +170,8 @@ interface Props {
   backendProfiles: BackendProfileClientInfo[];
   /** v0.13 Part E: profile id every not-otherwise-pinned claude-code agent currently falls back to, or null for "official". */
   defaultBackendProfile: string | null;
+  /** v0.22 Part B: which backend currently drives the single Master planner. */
+  masterBrain: "claude-code" | "codex";
   agents: Agent[];
   /** v0.21.3: re-checks the login-based credential sources (see fetchCredentialStatuses's own doc comment) — the "refresh" button next to each. */
   onRefreshCredentials: () => Promise<void>;
@@ -180,11 +183,31 @@ export function BackendProfilesPanel({
   credentialStatuses,
   backendProfiles,
   defaultBackendProfile,
+  masterBrain,
   agents,
   onRefreshCredentials,
 }: Props) {
   const { t } = useLanguage();
   const masterCliSession = credentialStatuses.find((source) => source.id === "claude-code-cli-session");
+  const codexCliSession = credentialStatuses.find((source) => source.id === "codex-cli-session");
+  const [masterBrainSaving, setMasterBrainSaving] = useState(false);
+  const [masterBrainError, setMasterBrainError] = useState<string | null>(null);
+  const [masterBrainSaved, setMasterBrainSaved] = useState(false);
+
+  async function handleMasterBrainChange(id: "claude-code" | "codex") {
+    if (id === masterBrain) return;
+    setMasterBrainSaving(true);
+    setMasterBrainError(null);
+    setMasterBrainSaved(false);
+    try {
+      await setMasterBrain(id);
+      setMasterBrainSaved(true);
+    } catch (err) {
+      setMasterBrainError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMasterBrainSaving(false);
+    }
+  }
 
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigningAgentId, setAssigningAgentId] = useState<string | null>(null);
@@ -471,19 +494,38 @@ export function BackendProfilesPanel({
 
         <section className="bp-section" aria-labelledby="bp-master-heading">
           <h3 id="bp-master-heading">{t.masterBrainHeading}</h3>
-          <div className="bp-master-mode">
-            <div>
-              <strong>{t.claudeSubscriptionLogin}</strong>
-              <p>
-                {t.masterBrainDescBefore}
-                <code>claude -p</code>
-                {t.masterBrainDescAfter}
-              </p>
-            </div>
-            <span className={`bp-status-pill ${masterCliSession?.available ? "bp-status-ok" : "bp-status-bad"}`}>
-              {masterCliSession?.available ? t.cliSessionConfigured : t.cliSessionUnavailable}
-            </span>
+          <p className="bp-hint">{t.masterBrainSelectorHint}</p>
+          <div className="bp-master-selector" role="radiogroup" aria-labelledby="bp-master-heading">
+            {(["claude-code", "codex"] as const).map((id) => {
+              const session = id === "claude-code" ? masterCliSession : codexCliSession;
+              const ready = Boolean(session?.available);
+              return (
+                <label key={id} className={`bp-master-option ${masterBrain === id ? "bp-master-option-selected" : ""}`}>
+                  <input
+                    type="radio"
+                    name="master-brain"
+                    value={id}
+                    checked={masterBrain === id}
+                    disabled={masterBrainSaving}
+                    onChange={() => void handleMasterBrainChange(id)}
+                  />
+                  <span>{t.masterBrainOptionLabel(id)}</span>
+                  <span className={`bp-status-pill ${ready ? "bp-status-ok" : "bp-status-bad"}`}>
+                    {ready ? t.cliSessionConfigured : t.cliSessionUnavailable}
+                  </span>
+                </label>
+              );
+            })}
           </div>
+          {masterBrainSaving && <div className="bp-hint">{t.masterBrainSelectorSaving}</div>}
+          {masterBrainSaved && !masterBrainSaving && !masterBrainError && (
+            <div className="bp-save-success">{t.masterBrainSelectorSaved}</div>
+          )}
+          {masterBrainError && (
+            <div className="bp-form-error" role="alert">
+              {masterBrainError}
+            </div>
+          )}
           <dl className="bp-master-details">
             <div>
               <dt>{t.authenticationLabel}</dt>

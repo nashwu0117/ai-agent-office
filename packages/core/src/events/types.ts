@@ -47,4 +47,6 @@ export type OfficeEvent =
   /** v0.10: pushed whenever an agent is repointed at a different backend profile through the management UI (PUT /api/agents/:id/backend-profile). Takes effect on that agent's *next* dispatched task — see Orchestrator.setAgentBackendProfile. */
   | { type: "agent_backend_profile_changed"; agentId: string; backendProfile?: string }
   /** v0.13: pushed whenever the global default backend profile is changed through the management UI (PUT /api/default-backend-profile) — see apps/server/src/default-backend-store.ts. Every claude-code agent with neither a persisted per-agent override nor an AGENT_ROSTER-hardcoded default follows this value; each one that gets live-repointed also emits its own agent_backend_profile_changed. */
-  | { type: "default_backend_profile_changed"; backendProfile: string | null };
+  | { type: "default_backend_profile_changed"; backendProfile: string | null }
+  /** v0.22 Part B: pushed whenever the Master Brain backend selector is changed (PUT /api/master-brain) — see apps/server/src/master-brain-store.ts. Takes effect starting with the next plan()/summarize() call. */
+  | { type: "master_brain_changed"; masterBrain: string };

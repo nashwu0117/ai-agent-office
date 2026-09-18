@@ -11,3 +11,4 @@ export * from "./orchestrator/orchestrator.js";
 export * from "./master/brain.js";
 export * from "./master/dependency-graph.js";
 export * from "./master/goal-coordinator.js";
+export * from "./master/plan-parser.js";

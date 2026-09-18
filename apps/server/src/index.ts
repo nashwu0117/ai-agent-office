@@ -9,6 +9,7 @@ import {
   KNOWN_CAPABILITIES,
   type Agent,
   type BackendProfileRegistry,
+  type MasterBrain,
   type OfficeEvent,
 } from "@ai-office/core";
 import { GitRepoGuard, createDefaultCredentialRouter } from "@ai-office/core/node";
@@ -17,10 +18,12 @@ import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 import { ClineAdapter } from "@ai-office/adapter-cline";
 import { CodexAdapter } from "@ai-office/adapter-codex";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
+import { CodexMasterBrain } from "@ai-office/adapter-master-codex";
 import { startFormatTranslationProxy } from "./proxy-server.js";
 import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
 import { BackendProfileStore, BackendProfileValidationError, type BackendProfileUpdate } from "./backend-profile-store.js";
 import { DefaultBackendStore } from "./default-backend-store.js";
+import { MasterBrainStore, type MasterBrainId } from "./master-brain-store.js";
 import { requireAuth, registerAuthRoutes, isUpgradeRequestAuthenticated, logAuthStartupState } from "./auth.js";
 import { dispatchLimiter, modelsLimiter, generalApiLimiter, revealSecretLimiter } from "./rate-limits.js";
 
@@ -396,10 +399,27 @@ const orchestrator = new Orchestrator({
   },
 });
 
-// Constructing this never throws without ANTHROPIC_API_KEY: Master uses the
-// logged-in Claude Code CLI subscription session, and the manual task path
-// remains independent of Master planning.
-const master = new AnthropicMasterBrain(credentialRouter);
+// v0.22 Part B: MasterBrainRegistry — the fixed set of backends this server
+// can drive the single Master planner with (see docs on why this couldn't
+// just be another BackendProfile row). Constructing either never throws
+// without its respective login/credential: both adapters resolve their own
+// CredentialRouter provider lazily, at the first real plan()/summarize()
+// call, not at construction time.
+const masterBrains: Record<MasterBrainId, MasterBrain> = {
+  "claude-code": new AnthropicMasterBrain(credentialRouter),
+  codex: new CodexMasterBrain(credentialRouter),
+};
+const MASTER_BRAIN_LABELS: Record<MasterBrainId, string> = {
+  "claude-code": "Claude Code CLI (Claude.ai subscription login)",
+  codex: "Codex CLI (ChatGPT/API login)",
+};
+const MASTER_BRAIN_CREDENTIAL_PROVIDER: Record<MasterBrainId, string> = {
+  "claude-code": "claude-code-cli",
+  codex: "codex-native",
+};
+const masterBrainStore = new MasterBrainStore(`${DATA_DIR}master-brain.json`);
+
+const master = masterBrains[masterBrainStore.get()];
 goalCoordinator = new GoalCoordinator({ orchestrator, master, broadcast });
 
 function makeAgent(id: string, runtime: string, eligibleCapabilities: string[], backendProfile?: string): Agent {
@@ -437,6 +457,8 @@ wss.on("connection", (socket) => {
       // v0.13 Part E: which profile id (or null for "official") every
       // not-otherwise-pinned claude-code agent currently falls back to.
       defaultBackendProfile: defaultBackendStore.get(),
+      // v0.22 Part B: which backend currently drives the single Master planner.
+      masterBrain: masterBrainStore.get(),
     })
   );
   socket.on("close", () => clients.delete(socket));
@@ -783,6 +805,51 @@ app.put("/api/default-backend-profile", (req, res) => {
   res.json({ backendProfile: defaultBackendStore.get() });
 });
 
+// v0.22 Part B: Master Brain backend selector — see master-brain-store.ts and
+// @ai-office/adapter-master-codex's own doc comment on why this needed a
+// separate mechanism from BackendProfile. `credentialReady` here is the same
+// per-provider check the Backend & Credentials panel's status pill already
+// uses (GET /api/credentials), surfaced again here so the selector UI can
+// show it inline without a second round trip.
+app.get("/api/master-brain", (_req, res) => {
+  const current = masterBrainStore.get();
+  res.json({
+    current,
+    options: (Object.keys(masterBrains) as MasterBrainId[]).map((id) => ({
+      id,
+      label: MASTER_BRAIN_LABELS[id],
+      credentialReady: Boolean(credentialRouter.resolve(MASTER_BRAIN_CREDENTIAL_PROVIDER[id])),
+    })),
+  });
+});
+
+// Rejects the switch outright (409) when the target backend has no usable
+// login session yet, rather than persisting a selection that would only
+// fail later at the next goal submission — see the build prompt's Part B.4
+// ("give a clear error at selection time or on first call, never a silent
+// stall"). The operator can still always retry once logged in.
+app.put("/api/master-brain", (req, res) => {
+  const raw = req.body?.masterBrain;
+  if (raw !== "claude-code" && raw !== "codex") {
+    res.status(400).json({ error: 'masterBrain must be "claude-code" or "codex"' });
+    return;
+  }
+  const id = raw as MasterBrainId;
+  if (!credentialRouter.resolve(MASTER_BRAIN_CREDENTIAL_PROVIDER[id])) {
+    res.status(409).json({
+      error: `${MASTER_BRAIN_LABELS[id]} has no usable login session yet. ${
+        id === "codex" ? "Run `codex login` on this machine, then try again." : "Run `claude auth login`, then try again."
+      }`,
+    });
+    return;
+  }
+
+  masterBrainStore.set(id);
+  goalCoordinator.setMaster(masterBrains[id]);
+  broadcast({ type: "master_brain_changed", masterBrain: id });
+  res.json({ current: id });
+});
+
 // v0.18: last middleware, catches anything an /api handler threw (Express 4
 // forwards a synchronous throw from a route handler here automatically) —
 // logs the real error server-side and returns a generic message, never
@@ -809,11 +876,17 @@ httpServer.listen(PORT, () => {
   const apiKeyState = process.env.ANTHROPIC_API_KEY?.trim() ? "set" : "unset";
   const authTokenState = process.env.ANTHROPIC_AUTH_TOKEN?.trim() ? "set" : "unset";
   const baseUrlState = process.env.ANTHROPIC_BASE_URL?.trim() ? "set" : "unset";
-  console.log("[ai-office] Master Brain: Claude Code CLI headless (`claude -p --output-format json`)");
-  console.log("[ai-office] Master Brain auth: Claude.ai Pro/Max subscription login; Console API keys are not used");
+  const currentMasterBrain = masterBrainStore.get();
+  console.log(`[ai-office] Master Brain: ${MASTER_BRAIN_LABELS[currentMasterBrain]} (selected id: ${currentMasterBrain})`);
   console.log(
-    `[ai-office] Master Brain parent API env: ANTHROPIC_API_KEY=${apiKeyState}, ANTHROPIC_AUTH_TOKEN=${authTokenState}, ANTHROPIC_BASE_URL=${baseUrlState}; all are stripped from the Master subprocess`
+    `[ai-office] Master Brain login session: ${credentialRouter.resolve(MASTER_BRAIN_CREDENTIAL_PROVIDER[currentMasterBrain]) ? "available" : "UNAVAILABLE — the next goal submission will fail fast until this is fixed"}`
   );
+  if (currentMasterBrain === "claude-code") {
+    console.log(
+      `[ai-office] Master Brain parent API env: ANTHROPIC_API_KEY=${apiKeyState}, ANTHROPIC_AUTH_TOKEN=${authTokenState}, ANTHROPIC_BASE_URL=${baseUrlState}; all are stripped from the Master subprocess`
+    );
+  }
+  console.log("[ai-office] switch Master Brain backends via PUT /api/master-brain (see the Backend & Credentials panel)");
 
   // v0.8: same "surface at startup, not only on first dispatch" reasoning as
   // the credential-source logging above — id/label/which env vars only,

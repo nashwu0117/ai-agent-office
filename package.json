@@ -10,6 +10,7 @@
     "packages/adapters/cline",
     "packages/adapters/codex",
     "packages/adapters/master-anthropic",
+    "packages/adapters/master-codex",
     "apps/server",
     "apps/web"
   ],
