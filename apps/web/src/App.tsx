@@ -286,6 +286,39 @@ export default function App() {
     return result;
   }, [logsByAgent]);
 
+  // Agents dispatched from the same Master goal are the collaboration unit.
+  // Once at least two siblings are active, the scene sends them to one of
+  // three meeting rooms together; unrelated agents keep their desks or roam.
+  const collaborationRoomByAgent = useMemo(() => {
+    const groups = new Map<string, string[]>();
+    for (const agent of agents) {
+      const task = agent.currentTaskId ? tasksById[agent.currentTaskId] : undefined;
+      const active = ["assigned", "starting", "working", "waiting", "blocked"].includes(agent.state);
+      if (!active) continue;
+      // Master-decomposed tasks share goalId. For manually submitted tasks,
+      // active agents exchanging progress in the same workspace are the
+      // closest available collaboration signal.
+      const collaborationKey = task?.goalId
+        ? `goal:${task.goalId}`
+        : task?.workspacePath && progressByAgent[agent.id]
+          ? `workspace:${task.workspacePath}`
+          : undefined;
+      if (!collaborationKey) continue;
+      const group = groups.get(collaborationKey) ?? [];
+      group.push(agent.id);
+      groups.set(collaborationKey, group);
+    }
+
+    const result: Record<string, number> = {};
+    [...groups.entries()]
+      .filter(([, ids]) => ids.length > 1)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .forEach(([, ids], groupIndex) => {
+        for (const agentId of ids) result[agentId] = groupIndex % 3;
+      });
+    return result;
+  }, [agents, tasksById, progressByAgent]);
+
   const queueItems = useMemo(
     () =>
       Object.values(tasksById)
@@ -375,6 +408,7 @@ export default function App() {
           <OfficeScene
             agents={agents}
             progressByAgent={progressByAgent}
+            collaborationRoomByAgent={collaborationRoomByAgent}
             selectedId={selectedId}
             onSelect={setSelectedId}
             securityAlertAgentIds={securityAlertAgents}

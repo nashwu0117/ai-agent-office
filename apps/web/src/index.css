@@ -308,8 +308,9 @@ input[type="checkbox"] {
 .office-canvas {
   position: relative;
   grid-column: 1 / -1;
-  width: 100%;
-  max-width: 992px;
+  justify-self: start;
+  width: min(100%, var(--office-width, 1280px));
+  max-width: none;
   padding: 42px 12px 12px;
   overflow: hidden;
   line-height: 0;
@@ -341,7 +342,7 @@ input[type="checkbox"] {
   left: 4px;
   height: 34px;
   padding: 0 12px;
-  content: "LIVE OFFICE  //  FLOOR 01";
+  content: var(--office-title, "LIVE OFFICE  //  FLOOR 01");
   color: var(--gold);
   background:
     linear-gradient(90deg, rgba(130, 68, 63, 0.55), transparent 64%),
@@ -373,11 +374,11 @@ input[type="checkbox"] {
 
 .office-canvas canvas {
   display: block;
-  /* Pixi writes fixed inline dimensions; override only those presentation
-     dimensions so the authored 960x576 buffer can fit narrow viewports. */
+  /* Pixi writes fixed inline dimensions; override only presentation width.
+     Auto height follows the canvas's intrinsic 16:9 buffer, so every user
+     resize remains proportional. */
   width: 100% !important;
   height: auto !important;
-  aspect-ratio: 5 / 3;
   object-fit: contain;
   background: var(--wall);
   image-rendering: pixelated;
@@ -385,6 +386,41 @@ input[type="checkbox"] {
   touch-action: manipulation;
   border: 3px solid var(--outline);
   box-shadow: 0 0 0 2px var(--stone-500);
+}
+
+.office-resize-handle {
+  position: absolute;
+  z-index: 4;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  color: var(--outline);
+  background: var(--gold);
+  border: 3px solid var(--outline);
+  box-shadow:
+    inset -3px -3px 0 rgba(130, 68, 63, 0.62),
+    2px 2px 0 rgba(0, 0, 0, 0.45);
+  cursor: nwse-resize;
+  font-family: var(--font-pixel);
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1;
+  touch-action: none;
+  user-select: none;
+}
+
+.office-resize-handle:hover {
+  color: var(--paper);
+  background: var(--wall);
+}
+
+.office-resize-handle:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .agent-access-list {
@@ -1235,6 +1271,10 @@ input[type="checkbox"] {
     order: 1;
   }
 
+  .office-resize-handle {
+    display: none;
+  }
+
   .detail-panel {
     display: none;
   }
@@ -1347,7 +1387,7 @@ input[type="checkbox"] {
   }
 
   .office-canvas::before {
-    content: "LIVE OFFICE // F01";
+    content: var(--office-title, "LIVE OFFICE // F01");
     letter-spacing: 0.09em;
   }
 

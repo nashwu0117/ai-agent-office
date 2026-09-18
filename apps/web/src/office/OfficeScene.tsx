@@ -1,8 +1,16 @@
-import { useEffect, useRef } from "react";
-import { Application, Container, Graphics, Sprite, type Texture } from "pixi.js";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { Application, Container, Graphics, Sprite, Text, type Texture } from "pixi.js";
 import type { Agent, AgentState } from "@ai-office/core";
 import { CHARACTER_KEYS, loadOfficeTextures, type AssetKey } from "./assets.js";
 import { useLanguage } from "../i18n/language-context.js";
+import type { Translations } from "../i18n/translations.js";
 
 // World is authored on a tile grid (Kenney's Tiny Dungeon tiles are 16x16)
 // and only converted to screen pixels at draw time via tileToScreen(). ZOOM
@@ -14,65 +22,79 @@ const TILE = 16;
 const ZOOM = 3;
 const SCREEN_TILE = TILE * ZOOM;
 
-// v0.15: grown from 20x12 to 25x15 (same 5:3 aspect ratio the CSS
-// `.office-canvas canvas` rule assumes) to fit a third desk row and a wider
-// walkway — AGENT_ROSTER had grown past 6 agents and this scene still only
-// had 6 desk/home slots, so later agents landed exactly on top of earlier
-// ones (same modulo'd slot) and their labels visibly overlapped. Kept at
-// this size in v0.21 even though the roster shrank back to 13 (see
-// AGENT_ROSTER's v0.21 comment in apps/server/src/index.ts) — still needed
-// for 13 non-overlapping slots below, just with fewer desks per row.
-const COLS = 25;
-const ROWS = 15;
+// The larger 16:9 floor gives the agents enough real walking room instead of
+// making the old 25x15 room look larger with CSS alone. The Pixi buffer keeps
+// the authored integer zoom, so resizing the panel still preserves crisp
+// nearest-neighbour pixels.
+const COLS = 32;
+const ROWS = 18;
 const WIDTH = COLS * SCREEN_TILE;
 const HEIGHT = ROWS * SCREEN_TILE;
+const DEFAULT_OFFICE_WIDTH = 1280;
+const MIN_OFFICE_WIDTH = 520;
+const OFFICE_WIDTH_STORAGE_KEY = "ai-office-scene-width";
 
-// Three rows of desks (5 + 5 + 3 = 13) inside the widened open-office block
-// (tx 4-19, ty 1-9), same desk/seat spacing pattern as the original 6-desk
-// layout, just repeated for a third (partial) row — one desk per
-// claude-code AGENT_ROSTER entry (v0.21: 13 of them; the 5 CLI-login/direct
-// agents below get their own PUBLIC_HOMES slots instead, so all 13 desks
-// here map 1:1 to the profile-routed agents, with a little headroom to
-// spare in v0.21's actual count — see buildDecor's own comment on where
-// this array is consumed).
+type TilePoint = readonly [number, number];
+
+const DESK_COLUMNS = [7, 11, 15, 19, 23] as const;
+
+// Three full rows leave two spare desks beyond today's 13-agent roster and,
+// importantly, never modulo two active agents onto the same chair.
 const WORKSTATIONS = [
-  { desk: [6, 2], seat: [6.5, 3] },
-  { desk: [9, 2], seat: [9.5, 3] },
-  { desk: [12, 2], seat: [12.5, 3] },
-  { desk: [15, 2], seat: [15.5, 3] },
-  { desk: [18, 2], seat: [18.5, 3] },
-  { desk: [6, 5], seat: [6.5, 6] },
-  { desk: [9, 5], seat: [9.5, 6] },
-  { desk: [12, 5], seat: [12.5, 6] },
-  { desk: [15, 5], seat: [15.5, 6] },
-  { desk: [18, 5], seat: [18.5, 6] },
-  { desk: [6, 8], seat: [6.5, 9] },
-  { desk: [9, 8], seat: [9.5, 9] },
-  { desk: [12, 8], seat: [12.5, 9] },
+  ...DESK_COLUMNS.map((x) => ({ desk: [x, 2] as TilePoint, seat: [x + 0.5, 3.5] as TilePoint })),
+  ...DESK_COLUMNS.map((x) => ({ desk: [x, 6] as TilePoint, seat: [x + 0.5, 7.5] as TilePoint })),
+  ...DESK_COLUMNS.map((x) => ({ desk: [x, 10] as TilePoint, seat: [x + 0.5, 11.5] as TilePoint })),
 ] as const;
 
-// Two rows in the central walkway between the meeting room (tx <= 6) and the
-// lounge (tx >= 18), spaced 1.5 tiles (72px) apart — comfortably wider than
-// an agent-id label (~62px) so labels never collide. v0.21: trimmed back to
-// 13 (7 + 6) from the v0.16 15-slot layout, matching the smaller roster.
-const PUBLIC_HOMES = [
-  [7.5, 12.3],
-  [9.0, 12.3],
-  [10.5, 12.3],
-  [12.0, 12.3],
-  [13.5, 12.3],
-  [15.0, 12.3],
-  [16.5, 12.3],
-  [7.5, 13.8],
-  [9.0, 13.8],
-  [10.5, 13.8],
-  [12.0, 13.8],
-  [13.5, 13.8],
-  [15.0, 13.8],
+// Safe, distinct initial positions in the lower common area. They are only
+// spawn points now; available agents subsequently roam the whole office.
+const PUBLIC_HOMES: readonly TilePoint[] = [
+  [6.5, 14.5], [8.5, 14.5], [6.5, 16.5], [8.5, 16.5],
+  [17.5, 14.5], [19.5, 14.5], [17.5, 16.5], [19.5, 16.5],
+  [28.5, 14.5], [30.5, 14.5], [28.5, 16.5], [30.5, 16.5],
+  [12.5, 14.5],
 ] as const;
-const HORIZONTAL_DIVIDER_ROW = 10;
-const HORIZONTAL_GAPS = new Set([3, 4, 9, 10, 15, 16, 20, 21]);
-const VERTICAL_GAP_ROWS = new Set([5]);
+const HORIZONTAL_DIVIDER_ROW = 12;
+const HORIZONTAL_GAPS = new Set([3, 4, 8, 9, 14, 15, 20, 21, 27, 28]);
+const VERTICAL_PARTITION_COLUMNS = [5, 26] as const;
+const MEETING_PARTITION_COLUMNS = [10, 21] as const;
+const VERTICAL_GAP_ROWS = new Set([6, 7]);
+
+const PLANT_CELLS: readonly TilePoint[] = [[0, 10], [27, 9], [31, 10]];
+const MEETING_ROOMS = [
+  {
+    anchor: [7.5, 14.5] as TilePoint,
+    slots: [[6.5, 14.5], [8.5, 14.5], [6.5, 16.5], [8.5, 16.5]] as readonly TilePoint[],
+    furniture: [[3, 15], [4, 15], [2, 15], [5, 15], [3, 16], [4, 16]] as readonly TilePoint[],
+  },
+  {
+    anchor: [18.5, 14.5] as TilePoint,
+    slots: [[17.5, 14.5], [19.5, 14.5], [17.5, 16.5], [19.5, 16.5]] as readonly TilePoint[],
+    furniture: [[14, 15], [15, 15], [13, 15], [16, 15], [14, 16], [15, 16]] as readonly TilePoint[],
+  },
+  {
+    anchor: [29.5, 14.5] as TilePoint,
+    slots: [[28.5, 14.5], [30.5, 14.5], [28.5, 16.5], [30.5, 16.5]] as readonly TilePoint[],
+    furniture: [[25, 15], [26, 15], [24, 15], [27, 15], [25, 16], [26, 16]] as readonly TilePoint[],
+  },
+] as const;
+const BLOCKING_DECOR_CELLS: readonly TilePoint[] = [
+  // Reception.
+  [2, 4], [2, 5], [0, 6],
+  // Pantry / records.
+  [27, 2], [31, 2], [29, 5], [28, 5], [30, 5], [31, 7],
+  ...MEETING_ROOMS.flatMap((room) => room.furniture),
+];
+
+const ROAM_DESTINATIONS: readonly TilePoint[] = [
+  [1.5, 3.5], [3.5, 3.5], [1.5, 8.5], [3.5, 9.5],
+  [6.5, 4.5], [9.5, 4.5], [13.5, 4.5], [17.5, 4.5], [21.5, 4.5], [24.5, 4.5],
+  [6.5, 8.5], [9.5, 8.5], [13.5, 8.5], [17.5, 8.5], [21.5, 8.5], [24.5, 8.5],
+  [27.5, 3.5], [29.5, 3.5], [28.5, 8.5], [30.5, 10.5],
+  [6.5, 13.5], [8.5, 16.5], [17.5, 13.5], [19.5, 16.5], [28.5, 13.5], [30.5, 16.5],
+];
+
+const BLOCKED_CELLS = buildBlockedCells();
 
 const STATE_COLOR: Record<AgentState, number> = {
   created: 0x9ca3af,
@@ -88,11 +110,111 @@ const STATE_COLOR: Record<AgentState, number> = {
 };
 
 function isAtDesk(state: AgentState): boolean {
-  return state !== "available" && state !== "created";
+  return ["assigned", "starting", "working", "waiting", "blocked", "releasing"].includes(state);
 }
 
 function tileToScreen(tx: number, ty: number): { x: number; y: number } {
   return { x: Math.round(tx * SCREEN_TILE), y: Math.round(ty * SCREEN_TILE) };
+}
+
+function cellKey(x: number, y: number): string {
+  return `${x},${y}`;
+}
+
+function buildBlockedCells(): Set<string> {
+  const blocked = new Set<string>();
+
+  // The top trim and all physical partition segments are walls. Door gaps are
+  // deliberately omitted so path finding can move through them.
+  for (let x = 0; x < COLS; x += 1) blocked.add(cellKey(x, 0));
+  for (let x = 0; x < COLS; x += 1) {
+    if (!HORIZONTAL_GAPS.has(x)) blocked.add(cellKey(x, HORIZONTAL_DIVIDER_ROW));
+  }
+  for (const x of VERTICAL_PARTITION_COLUMNS) {
+    for (let y = 1; y <= 11; y += 1) {
+      if (!VERTICAL_GAP_ROWS.has(y)) blocked.add(cellKey(x, y));
+    }
+  }
+  // Three lower meeting rooms have a single doorway each at y=14.
+  for (const x of MEETING_PARTITION_COLUMNS) {
+    for (let y = 13; y < ROWS; y += 1) {
+      if (y !== 14) blocked.add(cellKey(x, y));
+    }
+  }
+
+  for (const { desk } of WORKSTATIONS) blocked.add(cellKey(Math.floor(desk[0]), Math.floor(desk[1])));
+  for (const [x, y] of [...BLOCKING_DECOR_CELLS, ...PLANT_CELLS]) {
+    blocked.add(cellKey(Math.floor(x), Math.floor(y)));
+  }
+  return blocked;
+}
+
+function isWalkableCell(x: number, y: number, temporarilyBlocked?: Set<string>): boolean {
+  return (
+    x >= 0 &&
+    x < COLS &&
+    y >= 1 &&
+    y < ROWS &&
+    !BLOCKED_CELLS.has(cellKey(x, y)) &&
+    !temporarilyBlocked?.has(cellKey(x, y))
+  );
+}
+
+function screenToCell(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.max(0, Math.min(COLS - 1, Math.floor(x / SCREEN_TILE))),
+    y: Math.max(1, Math.min(ROWS - 1, Math.floor(y / SCREEN_TILE))),
+  };
+}
+
+function findNavigationPath(
+  startX: number,
+  startY: number,
+  destination: TilePoint,
+  temporarilyBlocked?: Set<string>
+): Array<{ x: number; y: number }> {
+  const start = screenToCell(startX, startY);
+  const goal = { x: Math.floor(destination[0]), y: Math.floor(destination[1]) };
+  const goalKey = cellKey(goal.x, goal.y);
+  const queue = [start];
+  let cursor = 0;
+  const previous = new Map<string, string | null>([[cellKey(start.x, start.y), null]]);
+  const directions = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
+
+  while (cursor < queue.length) {
+    const current = queue[cursor++];
+    if (current.x === goal.x && current.y === goal.y) break;
+    for (const [dx, dy] of directions) {
+      const next = { x: current.x + dx, y: current.y + dy };
+      const nextKey = cellKey(next.x, next.y);
+      if (previous.has(nextKey)) continue;
+      // A destination remains reachable even if another moving agent happens
+      // to occupy that cell during route calculation.
+      if (nextKey !== goalKey && !isWalkableCell(next.x, next.y, temporarilyBlocked)) continue;
+      if (nextKey === goalKey && !isWalkableCell(next.x, next.y)) continue;
+      previous.set(nextKey, cellKey(current.x, current.y));
+      queue.push(next);
+    }
+  }
+
+  if (!previous.has(goalKey)) return [];
+  const cells: Array<{ x: number; y: number }> = [];
+  let key: string | null = goalKey;
+  while (key) {
+    const [x, y] = key.split(",").map(Number);
+    cells.push({ x, y });
+    key = previous.get(key) ?? null;
+  }
+  cells.reverse();
+
+  // The first cell contains the agent already. Every remaining point is the
+  // centre of a cardinally adjacent safe tile, so no segment cuts a corner.
+  const path = cells.slice(1).map(({ x, y }) => tileToScreen(x + 0.5, y + 0.5));
+  if (path.length === 0) {
+    const exactTarget = tileToScreen(destination[0], destination[1]);
+    if (Math.hypot(exactTarget.x - startX, exactTarget.y - startY) > 0.5) path.push(exactTarget);
+  }
+  return path;
 }
 
 interface SpriteBundle {
@@ -104,6 +226,12 @@ interface SpriteBundle {
   bubble: Graphics;
   bubbleText: string;
   target: { x: number; y: number };
+  destination: { x: number; y: number };
+  path: Array<{ x: number; y: number }>;
+  pathIndex: number;
+  navigationMode: "desk" | "meeting" | "wander";
+  wanderWait: number;
+  blockedFor: number;
   wanderPhase: number;
 }
 
@@ -225,6 +353,8 @@ function drawTaskBubble(target: Graphics, message: string): void {
 export interface OfficeSceneProps {
   agents: Agent[];
   progressByAgent: Record<string, string>;
+  /** Active collaboration groups keyed by agent id and assigned to one of the three meeting rooms. */
+  collaborationRoomByAgent?: Record<string, number>;
   selectedId: string | null;
   onSelect: (agentId: string) => void;
   /** Agent ids with a just-happened workspace isolation violation — rendered as a distinct alert, not the normal error badge. */
@@ -234,27 +364,112 @@ export interface OfficeSceneProps {
 export function OfficeScene({
   agents,
   progressByAgent,
+  collaborationRoomByAgent,
   selectedId,
   onSelect,
   securityAlertAgentIds,
 }: OfficeSceneProps) {
   const { t } = useLanguage();
+  const [officeWidth, setOfficeWidth] = useState(() => {
+    try {
+      const stored = Number.parseInt(localStorage.getItem(OFFICE_WIDTH_STORAGE_KEY) ?? "", 10);
+      return Number.isFinite(stored) ? Math.max(MIN_OFFICE_WIDTH, stored) : DEFAULT_OFFICE_WIDTH;
+    } catch {
+      return DEFAULT_OFFICE_WIDTH;
+    }
+  });
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    maxWidth: number;
+  } | null>(null);
   const appRef = useRef<Application | null>(null);
   const spritesRef = useRef<Map<string, SpriteBundle>>(new Map());
   const agentLayerRef = useRef<Container | null>(null);
   const texturesRef = useRef<Record<AssetKey, Texture> | null>(null);
   const agentsRef = useRef<Agent[]>(agents);
   const progressRef = useRef(progressByAgent);
+  const collaborationRef = useRef(collaborationRoomByAgent ?? {});
   const selectedRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
   const securityAlertRef = useRef<Set<string>>(securityAlertAgentIds ?? new Set());
 
   agentsRef.current = agents;
   progressRef.current = progressByAgent;
+  collaborationRef.current = collaborationRoomByAgent ?? {};
   selectedRef.current = selectedId;
   onSelectRef.current = onSelect;
   securityAlertRef.current = securityAlertAgentIds ?? new Set();
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      try {
+        localStorage.setItem(OFFICE_WIDTH_STORAGE_KEY, String(Math.round(officeWidth)));
+      } catch {
+        // Resizing remains available when storage is disabled.
+      }
+    }, 120);
+    return () => window.clearTimeout(timeout);
+  }, [officeWidth]);
+
+  function availableOfficeWidth(): number {
+    return hostRef.current?.parentElement?.clientWidth ?? DEFAULT_OFFICE_WIDTH;
+  }
+
+  function clampOfficeWidth(width: number, maxWidth = availableOfficeWidth()): number {
+    return Math.round(Math.max(Math.min(MIN_OFFICE_WIDTH, maxWidth), Math.min(width, maxWidth)));
+  }
+
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>): void {
+    const actualWidth = hostRef.current?.getBoundingClientRect().width ?? officeWidth;
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: actualWidth,
+      maxWidth: availableOfficeWidth(),
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function continueResize(event: ReactPointerEvent<HTMLButtonElement>): void {
+    const drag = resizeRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const horizontalDelta = event.clientX - drag.startX;
+    const verticalDelta = (event.clientY - drag.startY) * (WIDTH / HEIGHT);
+    const delta = Math.abs(horizontalDelta) >= Math.abs(verticalDelta) ? horizontalDelta : verticalDelta;
+    setOfficeWidth(clampOfficeWidth(drag.startWidth + delta, drag.maxWidth));
+  }
+
+  function finishResize(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+    resizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function resizeWithKeyboard(event: ReactKeyboardEvent<HTMLButtonElement>): void {
+    const step = event.shiftKey ? 160 : 64;
+    const currentWidth = hostRef.current?.getBoundingClientRect().width ?? officeWidth;
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setOfficeWidth(clampOfficeWidth(currentWidth - step));
+    } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setOfficeWidth(clampOfficeWidth(currentWidth + step));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setOfficeWidth(clampOfficeWidth(MIN_OFFICE_WIDTH));
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setOfficeWidth(availableOfficeWidth());
+    }
+  }
 
   useEffect(() => {
     let destroyed = false;
@@ -286,7 +501,7 @@ export function OfficeScene({
       app.stage.addChild(worldLayer);
       buildFloor(worldLayer, textures);
       buildPartitions(worldLayer, textures);
-      buildDecor(worldLayer, textures);
+      buildDecor(worldLayer, textures, t);
 
       const agentLayer = new Container();
       app.stage.addChild(agentLayer);
@@ -300,6 +515,8 @@ export function OfficeScene({
           progressRef.current,
           selectedRef.current,
           securityAlertRef.current,
+          collaborationRef.current,
+          t,
           ticker.deltaTime
         );
       });
@@ -313,12 +530,16 @@ export function OfficeScene({
       texturesRef.current = null;
       spritesRef.current.clear();
     };
-  }, []);
+  }, [t.lang]);
 
   return (
     <section
       ref={hostRef}
       className="office-canvas"
+      style={{
+        "--office-width": `${officeWidth}px`,
+        "--office-title": JSON.stringify(t.officeCanvasTitle),
+      } as CSSProperties}
       aria-labelledby="office-scene-heading"
       aria-describedby="office-scene-summary"
     >
@@ -349,6 +570,21 @@ export function OfficeScene({
           );
         })}
       </ul>
+      <button
+        type="button"
+        className="office-resize-handle"
+        aria-label={`${t.officeResizeHandle}. ${t.officeResizeHint}`}
+        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End"
+        title={t.officeResizeHint}
+        onPointerDown={startResize}
+        onPointerMove={continueResize}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
+        onKeyDown={resizeWithKeyboard}
+        onDoubleClick={() => setOfficeWidth(DEFAULT_OFFICE_WIDTH)}
+      >
+        <span aria-hidden="true">↘</span>
+      </button>
     </section>
   );
 }
@@ -405,9 +641,8 @@ function buildFloor(layer: Container, textures: Record<AssetKey, Texture>): void
       if (ty === 0) {
         placeTile(layer, textures.wall_trim, tx, ty);
       } else if (
-        (tx >= 4 && tx <= 19 && ty >= 1 && ty <= 9) ||
-        (tx <= 6 && ty >= 11) ||
-        (tx >= 18 && ty >= 11)
+        (tx >= 5 && tx <= 26 && ty >= 1 && ty <= 11) ||
+        ty >= 13
       ) {
         placeTile(layer, textures.floor_dark, tx, ty);
       } else {
@@ -423,61 +658,55 @@ function buildPartitions(layer: Container, textures: Record<AssetKey, Texture>):
     layer.addChild(drawOfficePartition(tx, HORIZONTAL_DIVIDER_ROW, "horizontal"));
   }
 
-  for (const tx of [4, 20]) {
-    for (let ty = 1; ty <= 9; ty += 1) {
+  for (const tx of VERTICAL_PARTITION_COLUMNS) {
+    for (let ty = 1; ty <= 11; ty += 1) {
       if (VERTICAL_GAP_ROWS.has(ty)) continue;
+      layer.addChild(drawOfficePartition(tx, ty, "vertical"));
+    }
+  }
+
+  for (const tx of MEETING_PARTITION_COLUMNS) {
+    for (let ty = 13; ty < ROWS; ty += 1) {
+      if (ty === 14) continue;
       layer.addChild(drawOfficePartition(tx, ty, "vertical"));
     }
   }
 }
 
-function buildDecor(layer: Container, textures: Record<AssetKey, Texture>): void {
+function buildDecor(layer: Container, textures: Record<AssetKey, Texture>, t: Translations): void {
   // Reception: a staffed welcome desk, company plaque, noticeboard and files.
-  addZoneSign(layer, "RECEPTION", 2, 1.25, 0xf3c66b);
+  addZoneSign(layer, t.officeZoneReception, 2.5, 1.25, 0xf3c66b, t.lang);
   placeTile(layer, textures.wall_plaque, 1, 2);
   placeTile(layer, textures.noticeboard, 3, 2);
   placeTile(layer, textures.desk_monitor, 2, 4);
   placeTile(layer, textures.stool, 2, 5);
-  placeTile(layer, textures.bookshelf, 0, 5);
+  placeTile(layer, textures.bookshelf, 0, 6);
 
-  // Main office: three desk rows (two full, one partial), 13 workstations —
-  // see WORKSTATIONS above.
-  addZoneSign(layer, "OPEN OFFICE", 11.5, 1.25, 0x5fc98f);
+  // Main office: 15 spacious workstations across three rows.
+  addZoneSign(layer, t.officeZoneOpenOffice, 15.5, 1.25, 0x5fc98f, t.lang);
   for (const workstation of WORKSTATIONS) {
     placeTile(layer, textures.desk_monitor, workstation.desk[0], workstation.desk[1]);
   }
 
   // Pantry / records: refreshment point plus storage along the right wall.
-  addZoneSign(layer, "PANTRY", 22, 1.25, 0x8da9d6);
-  placeTile(layer, textures.bookshelf, 20, 2);
-  placeTile(layer, textures.water_cooler, 24, 2);
-  placeTile(layer, textures.table, 22, 4);
-  placeTile(layer, textures.stool, 21, 4);
-  placeTile(layer, textures.stool, 23, 4);
-  layer.addChild(drawPixelBin(24, 5));
+  addZoneSign(layer, t.officeZonePantry, 29, 1.25, 0x8da9d6, t.lang);
+  placeTile(layer, textures.bookshelf, 27, 2);
+  placeTile(layer, textures.water_cooler, 31, 2);
+  placeTile(layer, textures.table, 29, 5);
+  placeTile(layer, textures.stool, 28, 5);
+  placeTile(layer, textures.stool, 30, 5);
+  layer.addChild(drawPixelBin(31, 7));
 
-  // Meeting corner: a three-tile conference table surrounded by seats.
-  addZoneSign(layer, "MEETING", 3.5, 11.25, 0xf3c66b);
-  for (const tx of [2, 3, 4]) placeTile(layer, textures.table, tx, 12);
-  for (const [tx, ty] of [[1, 12], [5, 12], [2, 13], [4, 13]]) {
-    placeTile(layer, textures.stool, tx, ty);
-  }
-  placeTile(layer, textures.noticeboard, 0, 12);
+  // Three independent meeting rooms. Their slots are also the destinations
+  // used when a collaboration group is actively exchanging progress.
+  MEETING_ROOMS.forEach((room, roomIndex) => {
+    addZoneSign(layer, t.officeZoneMeetingRoom(roomIndex + 1), room.anchor[0], 13.25, 0xf3c66b, t.lang);
+    room.furniture.forEach(([tx, ty], furnitureIndex) => {
+      placeTile(layer, furnitureIndex < 2 ? textures.table : textures.stool, tx, ty);
+    });
+  });
 
-  // Lounge: softer spacing, a side table and the water-cooler conversation spot.
-  addZoneSign(layer, "LOUNGE", 21, 11.25, 0xa78bfa);
-  placeTile(layer, textures.table, 20, 13);
-  placeTile(layer, textures.stool, 19, 13);
-  placeTile(layer, textures.stool, 21, 13);
-  placeTile(layer, textures.bookshelf, 24, 13);
-
-  for (const [tx, ty] of [
-    [0, 8],
-    [20, 7],
-    [24, 8],
-    [0, 13],
-    [17, 13],
-  ]) {
+  for (const [tx, ty] of PLANT_CELLS) {
     layer.addChild(drawPottedPlant(tx, ty));
   }
 }
@@ -509,12 +738,35 @@ function drawPixelBin(tx: number, ty: number): Graphics {
   return g;
 }
 
-function addZoneSign(layer: Container, label: string, tx: number, ty: number, accent: number): void {
+function addZoneSign(
+  layer: Container,
+  label: string,
+  tx: number,
+  ty: number,
+  accent: number,
+  lang: Translations["lang"]
+): void {
   const sign = new Graphics();
-  const width = label.length * 8 + 22;
+  const width = (lang === "zh-TW" ? label.length * 16 : label.length * 8) + 22;
   sign.rect(-Math.floor(width / 2), -8, width, 28).fill({ color: 0x181724, alpha: 0.94 });
   sign.rect(-Math.floor(width / 2) + 4, -4, 6, 20).fill({ color: accent });
   const textLayer = new Graphics();
+  if (lang === "zh-TW") {
+    // The bitmap alphabet intentionally covers the Latin pixel set only.
+    // Browser-rendered CJK here keeps the Chinese labels legible after the
+    // language toggle without replacing the rest of the pixel-art scene.
+    const cjkText = new Text({
+      text: label,
+      style: { fontFamily: "sans-serif", fontSize: 13, fill: 0xf4e4cb, fontWeight: "700" },
+    });
+    cjkText.anchor.set(0.5);
+    cjkText.position.set(4, 2);
+    sign.addChild(cjkText);
+    const pos = tileToScreen(tx, ty);
+    sign.position.set(pos.x, pos.y);
+    layer.addChild(sign);
+    return;
+  }
   drawPixelText(textLayer, label, { color: 0xf4e4cb, unit: 2 });
   textLayer.x = 4;
   sign.addChild(textLayer);
@@ -562,7 +814,7 @@ function syncSprites(
 
     layer.addChild(container);
 
-    const [homeX, homeY] = PUBLIC_HOMES[i % PUBLIC_HOMES.length];
+    const [homeX, homeY] = chooseSpawnPoint(i, sprites);
     const home = tileToScreen(homeX, homeY);
     container.position.set(home.x, home.y);
 
@@ -575,6 +827,12 @@ function syncSprites(
       bubble,
       bubbleText: "",
       target: { x: home.x, y: home.y },
+      destination: { x: home.x, y: home.y },
+      path: [],
+      pathIndex: 0,
+      navigationMode: "wander",
+      wanderWait: i * 0.12,
+      blockedFor: 0,
       wanderPhase: Math.random() * 1000,
     });
   });
@@ -588,42 +846,268 @@ function syncSprites(
   }
 }
 
+function chooseSpawnPoint(index: number, sprites: Map<string, SpriteBundle>): TilePoint {
+  const candidates = [...PUBLIC_HOMES, ...ROAM_DESTINATIONS];
+  for (let offset = 0; offset < candidates.length; offset += 1) {
+    const candidate = candidates[(index + offset) % candidates.length];
+    const point = tileToScreen(candidate[0], candidate[1]);
+    const cell = screenToCell(point.x, point.y);
+    if (!isWalkableCell(cell.x, cell.y)) continue;
+    if (
+      [...sprites.values()].every(
+        (other) => Math.hypot(point.x - other.container.x, point.y - other.container.y) >= MIN_AGENT_SEPARATION
+      )
+    ) {
+      return candidate;
+    }
+  }
+  return PUBLIC_HOMES[index % PUBLIC_HOMES.length];
+}
+
+function meetingDestinationFor(
+  agent: Agent,
+  agents: Agent[],
+  collaborationRoomByAgent: Record<string, number>
+): TilePoint | null {
+  const roomIndex = collaborationRoomByAgent[agent.id];
+  const room = roomIndex === undefined ? undefined : MEETING_ROOMS[roomIndex];
+  if (!room) return null;
+  const group = agents.filter((candidate) => collaborationRoomByAgent[candidate.id] === roomIndex);
+  const slot = Math.max(0, group.findIndex((candidate) => candidate.id === agent.id));
+  return room.slots[slot % room.slots.length] ?? room.anchor;
+}
+
+function occupiedCells(sprites: Map<string, SpriteBundle>, bundle: SpriteBundle): Set<string> {
+  const occupied = new Set<string>();
+  for (const other of sprites.values()) {
+    if (other === bundle) continue;
+    const cell = screenToCell(other.container.x, other.container.y);
+    occupied.add(cellKey(cell.x, cell.y));
+  }
+  return occupied;
+}
+
+function setRoute(bundle: SpriteBundle, destination: TilePoint, sprites: Map<string, SpriteBundle>): void {
+  const target = tileToScreen(destination[0], destination[1]);
+  bundle.destination = target;
+  bundle.target = target;
+  bundle.path = findNavigationPath(
+    bundle.container.x,
+    bundle.container.y,
+    destination,
+    occupiedCells(sprites, bundle)
+  );
+  // Temporary agent occupancy can occasionally close a doorway. Static
+  // furniture is still respected in this fallback; another agent is handled
+  // by the live separation check and triggers a later re-route if necessary.
+  if (bundle.path.length === 0 && Math.hypot(target.x - bundle.container.x, target.y - bundle.container.y) > 2) {
+    bundle.path = findNavigationPath(bundle.container.x, bundle.container.y, destination);
+  }
+  bundle.pathIndex = 0;
+  bundle.blockedFor = 0;
+}
+
+function pickRoamDestination(bundle: SpriteBundle, sprites: Map<string, SpriteBundle>): void {
+  const start = Math.floor(Math.random() * ROAM_DESTINATIONS.length);
+  let fallback = ROAM_DESTINATIONS[start];
+
+  for (let offset = 0; offset < ROAM_DESTINATIONS.length; offset += 1) {
+    const candidate = ROAM_DESTINATIONS[(start + offset) % ROAM_DESTINATIONS.length];
+    const target = tileToScreen(candidate[0], candidate[1]);
+    if (Math.hypot(target.x - bundle.container.x, target.y - bundle.container.y) < SCREEN_TILE * 3) continue;
+
+    const reserved = [...sprites.values()].some(
+      (other) =>
+        other !== bundle &&
+        Math.hypot(target.x - other.destination.x, target.y - other.destination.y) < SCREEN_TILE * 1.5
+    );
+    if (!reserved) {
+      fallback = candidate;
+      break;
+    }
+  }
+  setRoute(bundle, fallback, sprites);
+}
+
+function overlapsAnotherAgent(
+  sprites: Map<string, SpriteBundle>,
+  bundle: SpriteBundle,
+  x: number,
+  y: number
+): boolean {
+  for (const other of sprites.values()) {
+    if (other === bundle) continue;
+    if (Math.hypot(x - other.container.x, y - other.container.y) < SCREEN_TILE * 0.98) return true;
+  }
+  return false;
+}
+
+const MIN_AGENT_SEPARATION = SCREEN_TILE * 0.98;
+
+function canPlaceAgent(
+  candidate: SpriteBundle,
+  x: number,
+  y: number,
+  sprites: SpriteBundle[]
+): boolean {
+  const cell = screenToCell(x, y);
+  if (!isWalkableCell(cell.x, cell.y)) return false;
+  return sprites.every(
+    (other) =>
+      other === candidate ||
+      Math.hypot(x - other.container.x, y - other.container.y) >= MIN_AGENT_SEPARATION
+  );
+}
+
+/**
+ * A path can be clear at the start of a frame and still converge with a
+ * second path in the same frame. Resolve that final continuous-space case
+ * after movement so agents never visually collapse into one pile. Desk- and
+ * meeting-bound agents have priority; a roaming agent yields and reroutes.
+ */
+function separateAgents(sprites: Map<string, SpriteBundle>): void {
+  const bundles = [...sprites.values()];
+  for (let first = 0; first < bundles.length; first += 1) {
+    for (let second = first + 1; second < bundles.length; second += 1) {
+      const a = bundles[first];
+      const b = bundles[second];
+      let dx = b.container.x - a.container.x;
+      let dy = b.container.y - a.container.y;
+      let distance = Math.hypot(dx, dy);
+      if (distance >= MIN_AGENT_SEPARATION) continue;
+      if (distance < 0.01) {
+        const angle = ((first + second + 1) * Math.PI) / 3;
+        dx = Math.cos(angle);
+        dy = Math.sin(angle);
+        distance = 1;
+      }
+
+      const priority = (mode: SpriteBundle["navigationMode"]): number =>
+        mode === "desk" ? 3 : mode === "meeting" ? 2 : 1;
+      const mover = priority(a.navigationMode) < priority(b.navigationMode) ? a : b;
+      const directionX = mover === a ? -dx / distance : dx / distance;
+      const directionY = mover === a ? -dy / distance : dy / distance;
+      const push = MIN_AGENT_SEPARATION - distance + 2;
+      const baseAngle = Math.atan2(directionY, directionX);
+      const candidateAngles = [0, 0.7, -0.7, 1.4, -1.4, Math.PI];
+      const separationSpot = candidateAngles
+        .map((offset) => baseAngle + offset)
+        .map((angle) => ({
+          x: mover.container.x + Math.cos(angle) * push,
+          y: mover.container.y + Math.sin(angle) * push,
+        }))
+        .find(({ x, y }) => canPlaceAgent(mover, x, y, bundles));
+
+      if (separationSpot) {
+        mover.container.position.set(Math.round(separationSpot.x), Math.round(separationSpot.y));
+      } else {
+        // Leave the agent in place for this frame, then force a fresh route;
+        // this breaks two-agent deadlocks at doors without teleporting either
+        // one through a wall or piece of furniture.
+        mover.path = [];
+        mover.pathIndex = 0;
+        mover.blockedFor = 1;
+        mover.wanderWait = 0;
+      }
+    }
+  }
+}
+
+function advanceAlongPath(
+  bundle: SpriteBundle,
+  sprites: Map<string, SpriteBundle>,
+  speed: number,
+  dt: number
+): "idle" | "moving" | "blocked" | "arrived" {
+  if (bundle.pathIndex >= bundle.path.length) return "idle";
+  let remaining = speed * dt;
+
+  while (remaining > 0 && bundle.pathIndex < bundle.path.length) {
+    const waypoint = bundle.path[bundle.pathIndex];
+    const dx = waypoint.x - bundle.container.x;
+    const dy = waypoint.y - bundle.container.y;
+    const distance = Math.hypot(dx, dy);
+    const step = Math.min(remaining, distance);
+    const nextX = distance === 0 ? waypoint.x : bundle.container.x + (dx / distance) * step;
+    const nextY = distance === 0 ? waypoint.y : bundle.container.y + (dy / distance) * step;
+
+    if (overlapsAnotherAgent(sprites, bundle, nextX, nextY)) return "blocked";
+    bundle.container.x = Math.round(nextX);
+    bundle.container.y = Math.round(nextY);
+    remaining -= step;
+
+    if (distance <= step + 0.5) {
+      bundle.container.position.set(waypoint.x, waypoint.y);
+      bundle.pathIndex += 1;
+    } else {
+      break;
+    }
+  }
+
+  return bundle.pathIndex >= bundle.path.length ? "arrived" : "moving";
+}
+
 function tick(
   sprites: Map<string, SpriteBundle>,
   agents: Agent[],
   progressByAgent: Record<string, string>,
   selectedId: string | null,
   securityAlertAgentIds: Set<string>,
+  collaborationRoomByAgent: Record<string, number>,
+  t: Translations,
   deltaFrames: number
 ): void {
-  const dt = deltaFrames / 60;
+  // Cap long background-tab frames so an agent cannot visually teleport
+  // through a room when the tab becomes active again.
+  const dt = Math.min(deltaFrames / 60, 0.1);
 
   agents.forEach((agent, i) => {
     const bundle = sprites.get(agent.id);
     if (!bundle) return;
 
+    bundle.wanderPhase += dt;
     const atDesk = isAtDesk(agent.state);
+    const meetingDestination = meetingDestinationFor(agent, agents, collaborationRoomByAgent);
+    const navigationMode = meetingDestination ? "meeting" : atDesk ? "desk" : "wander";
     const workstation = WORKSTATIONS[i % WORKSTATIONS.length];
+    const navigationDestination = meetingDestination ?? workstation.seat;
+    const desiredTarget = tileToScreen(navigationDestination[0], navigationDestination[1]);
 
-    if (atDesk) {
-      const seat = tileToScreen(workstation.seat[0], workstation.seat[1]);
-      bundle.target.x = seat.x;
-      bundle.target.y = seat.y;
-    } else {
-      bundle.wanderPhase += dt;
-      const [homeX, homeY] = PUBLIC_HOMES[i % PUBLIC_HOMES.length];
-      const wx = homeX + Math.sin(bundle.wanderPhase * 0.5) * 0.3;
-      const wy = homeY + Math.cos(bundle.wanderPhase * 0.3) * 0.25;
-      const home = tileToScreen(wx, wy);
-      bundle.target.x = home.x;
-      bundle.target.y = home.y;
+    if (navigationMode !== bundle.navigationMode) {
+      bundle.navigationMode = navigationMode;
+      bundle.wanderWait = 0;
+      if (navigationMode !== "wander") setRoute(bundle, navigationDestination, sprites);
     }
 
-    const speed = atDesk ? 0.07 : 0.025;
-    bundle.container.x += (bundle.target.x - bundle.container.x) * Math.min(1, speed * (1 + dt));
-    bundle.container.y += (bundle.target.y - bundle.container.y) * Math.min(1, speed * (1 + dt));
-    bundle.container.x = Math.round(bundle.container.x);
-    bundle.container.y = Math.round(bundle.container.y);
+    if (
+      navigationMode !== "wander" &&
+      (Math.hypot(bundle.destination.x - desiredTarget.x, bundle.destination.y - desiredTarget.y) > 2 ||
+        (bundle.pathIndex >= bundle.path.length &&
+          Math.hypot(bundle.destination.x - bundle.container.x, bundle.destination.y - bundle.container.y) > 2))
+    ) {
+      setRoute(bundle, navigationDestination, sprites);
+    }
+
+    if (!atDesk && bundle.pathIndex >= bundle.path.length) {
+      bundle.wanderWait -= dt;
+      if (bundle.wanderWait <= 0) pickRoamDestination(bundle, sprites);
+    }
+
+    const movement = advanceAlongPath(bundle, sprites, navigationMode === "meeting" ? 72 : atDesk ? 86 : 48, dt);
+    if (movement === "arrived" && navigationMode === "wander") {
+      bundle.wanderWait = 1.5 + Math.random() * 3.5;
+    } else if (movement === "blocked") {
+      bundle.blockedFor += dt;
+      if (bundle.blockedFor >= 0.8) {
+        if (navigationMode !== "wander") {
+          setRoute(bundle, navigationDestination, sprites);
+        } else {
+          pickRoamDestination(bundle, sprites);
+        }
+      }
+    } else {
+      bundle.blockedFor = 0;
+    }
 
     const seated = agent.state === "working" || agent.state === "waiting" || agent.state === "blocked";
     const bobSpeed = seated ? 6 : 2.2;
@@ -657,7 +1141,7 @@ function tick(
 
     const message = progressByAgent[agent.id];
     if (agent.state === "working" && message) {
-      const nextBubbleText = truncate(message, 44);
+      const nextBubbleText = t.lang === "zh-TW" ? t.officeWorkingMessage : truncate(message, 44);
       if (bundle.bubbleText !== nextBubbleText) {
         bundle.bubble.removeChildren().forEach((child) => child.destroy());
         drawTaskBubble(bundle.bubble, nextBubbleText);
@@ -665,7 +1149,7 @@ function tick(
       }
       bundle.bubble.visible = true;
     } else if (agent.state === "waiting") {
-      const waiting = "WAITING FOR WORKSPACE...";
+      const waiting = t.officeWaitingMessage;
       if (bundle.bubbleText !== waiting) {
         bundle.bubble.removeChildren().forEach((child) => child.destroy());
         drawTaskBubble(bundle.bubble, waiting);
@@ -676,6 +1160,8 @@ function tick(
       bundle.bubble.visible = false;
     }
   });
+
+  separateAgents(sprites);
 }
 
 function truncate(text: string, max: number): string {
