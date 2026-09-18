@@ -464,8 +464,6 @@ function buildDecor(layer: Container, textures: Record<AssetKey, Texture>): void
   placeTile(layer, textures.stool, 21, 13);
   placeTile(layer, textures.bookshelf, 24, 13);
 
-  addCompanyMark(layer, 2, 8);
-
   for (const [tx, ty] of [
     [0, 8],
     [20, 7],
@@ -506,31 +504,16 @@ function drawPixelBin(tx: number, ty: number): Graphics {
 
 function addZoneSign(layer: Container, label: string, tx: number, ty: number, accent: number): void {
   const sign = new Graphics();
-  const width = label.length * 4 + 11;
-  sign.rect(-Math.floor(width / 2), -4, width, 14).fill({ color: 0x181724, alpha: 0.94 });
-  sign.rect(-Math.floor(width / 2) + 2, -2, 3, 10).fill({ color: accent });
+  const width = label.length * 8 + 22;
+  sign.rect(-Math.floor(width / 2), -8, width, 28).fill({ color: 0x181724, alpha: 0.94 });
+  sign.rect(-Math.floor(width / 2) + 4, -4, 6, 20).fill({ color: accent });
   const textLayer = new Graphics();
-  drawPixelText(textLayer, label, { color: 0xf4e4cb, unit: 1 });
-  textLayer.x = 2;
+  drawPixelText(textLayer, label, { color: 0xf4e4cb, unit: 2 });
+  textLayer.x = 4;
   sign.addChild(textLayer);
   const pos = tileToScreen(tx, ty);
   sign.position.set(pos.x, pos.y);
   layer.addChild(sign);
-}
-
-function addCompanyMark(layer: Container, tx: number, ty: number): void {
-  const mark = new Graphics();
-  mark.rect(-52, -18, 104, 36).fill({ color: 0x181724, alpha: 0.96 });
-  mark.rect(-48, -14, 96, 28).fill({ color: 0x82443f });
-  mark.rect(-44, -10, 10, 20).fill({ color: 0xf3c66b });
-  const label = new Graphics();
-  drawPixelText(label, "AI OFFICE", { color: 0xf4e4cb, unit: 2 });
-  label.x = 8;
-  label.y = -5;
-  mark.addChild(label);
-  const pos = tileToScreen(tx, ty);
-  mark.position.set(pos.x, pos.y);
-  layer.addChild(mark);
 }
 
 function syncSprites(
