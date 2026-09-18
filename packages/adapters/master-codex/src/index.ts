@@ -28,6 +28,8 @@ export interface CodexMasterBrainOptions {
   command?: string;
   timeoutMs?: number;
   cwd?: string;
+  /** v0.22.1: explicit `--model` value — takes priority over the AI_OFFICE_MASTER_MODEL env var. Unset/empty means no --model flag (the CLI's own default). */
+  model?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ export class CodexMasterBrain implements MasterBrain {
         command: options.command,
         timeoutMs: options.timeoutMs,
         cwd: options.cwd,
+        model: options.model,
       });
   }
 
@@ -151,7 +154,12 @@ function extractJson(result: CodexRunResult): unknown {
   }
 }
 
-function createCodexHeadlessRunner(options: { command?: string; timeoutMs?: number; cwd?: string }): HeadlessRunner {
+function createCodexHeadlessRunner(options: {
+  command?: string;
+  timeoutMs?: number;
+  cwd?: string;
+  model?: string;
+}): HeadlessRunner {
   const command = options.command ?? process.env.AI_OFFICE_CODEX_COMMAND ?? "codex";
   const configuredTimeout = Number(process.env.AI_OFFICE_MASTER_TIMEOUT_MS);
   const timeoutMs =
@@ -162,7 +170,7 @@ function createCodexHeadlessRunner(options: { command?: string; timeoutMs?: numb
   return (prompt) =>
     new Promise<CodexRunResult>((resolve, reject) => {
       const args = ["exec", prompt, "--json", "--sandbox", "read-only", "-C", cwd];
-      const model = process.env.AI_OFFICE_MASTER_MODEL;
+      const model = options.model ?? process.env.AI_OFFICE_MASTER_MODEL;
       if (model?.trim()) args.push("--model", model.trim());
 
       const child = spawn(command, args, {

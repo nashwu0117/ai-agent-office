@@ -101,21 +101,27 @@
 }
 
 .bp-master-option {
-  align-items: center;
   background: rgba(96, 165, 250, 0.06);
   border: 1px solid rgba(96, 165, 250, 0.25);
   border-radius: 6px;
-  cursor: pointer;
   display: flex;
-  gap: 0.6rem;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0.6rem 0.8rem;
 }
 
-.bp-master-option input[type="radio"] {
+.bp-master-option-radio-row {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 0.6rem;
+}
+
+.bp-master-option-radio-row input[type="radio"] {
   flex: 0 0 auto;
 }
 
-.bp-master-option span:nth-of-type(1) {
+.bp-master-option-radio-row span:nth-of-type(1) {
   flex: 1;
   font-size: 0.88rem;
 }
@@ -123,6 +129,20 @@
 .bp-master-option-selected {
   background: rgba(96, 165, 250, 0.16);
   border-color: rgba(96, 165, 250, 0.6);
+}
+
+/* v0.22.1: the per-backend --model override, a sibling of the radio row
+   (not nested inside its <label>) so typing/clicking here never also
+   toggles which backend is selected. */
+.bp-master-model-row {
+  display: flex;
+  gap: 0.5rem;
+  padding-left: 1.7rem;
+}
+
+.bp-master-model-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
 }
 
 .bp-master-details {
@@ -150,8 +170,13 @@
 }
 
 @media (max-width: 650px) {
-  .bp-master-option {
+  .bp-master-option-radio-row {
     flex-wrap: wrap;
+  }
+
+  .bp-master-model-row {
+    flex-wrap: wrap;
+    padding-left: 0;
   }
 
   .bp-master-details {

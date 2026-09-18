@@ -6,6 +6,7 @@ import {
   setAgentBackendProfile,
   setDefaultBackendProfile,
   setMasterBrain,
+  setMasterBrainModel,
   updateBackendProfile,
 } from "./ws/client.js";
 import { useLanguage } from "./i18n/language-context.js";
@@ -172,6 +173,8 @@ interface Props {
   defaultBackendProfile: string | null;
   /** v0.22 Part B: which backend currently drives the single Master planner. */
   masterBrain: "claude-code" | "codex";
+  /** v0.22.1: per-backend --model override, keyed by MasterBrainId. */
+  masterBrainModels: Partial<Record<"claude-code" | "codex", string>>;
   agents: Agent[];
   /** v0.21.3: re-checks the login-based credential sources (see fetchCredentialStatuses's own doc comment) — the "refresh" button next to each. */
   onRefreshCredentials: () => Promise<void>;
@@ -184,6 +187,7 @@ export function BackendProfilesPanel({
   backendProfiles,
   defaultBackendProfile,
   masterBrain,
+  masterBrainModels,
   agents,
   onRefreshCredentials,
 }: Props) {
@@ -206,6 +210,41 @@ export function BackendProfilesPanel({
       setMasterBrainError(err instanceof Error ? err.message : String(err));
     } finally {
       setMasterBrainSaving(false);
+    }
+  }
+
+  // v0.22.1: per-backend model draft — re-synced from the live values only
+  // when the panel opens, not on every masterBrainModels change, so it never
+  // clobbers a value the operator is still typing.
+  const [modelDrafts, setModelDrafts] = useState<Record<"claude-code" | "codex", string>>({
+    "claude-code": masterBrainModels["claude-code"] ?? "",
+    codex: masterBrainModels.codex ?? "",
+  });
+  const [modelSaving, setModelSaving] = useState<Partial<Record<"claude-code" | "codex", boolean>>>({});
+  const [modelError, setModelError] = useState<Partial<Record<"claude-code" | "codex", string | null>>>({});
+  const [modelSaved, setModelSaved] = useState<Partial<Record<"claude-code" | "codex", boolean>>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    setModelDrafts({
+      "claude-code": masterBrainModels["claude-code"] ?? "",
+      codex: masterBrainModels.codex ?? "",
+    });
+    // Deliberately re-syncs only when the panel opens (see comment above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function handleSaveModel(id: "claude-code" | "codex") {
+    setModelSaving((s) => ({ ...s, [id]: true }));
+    setModelError((s) => ({ ...s, [id]: null }));
+    setModelSaved((s) => ({ ...s, [id]: false }));
+    try {
+      await setMasterBrainModel(id, modelDrafts[id].trim() || null);
+      setModelSaved((s) => ({ ...s, [id]: true }));
+    } catch (err) {
+      setModelError((s) => ({ ...s, [id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setModelSaving((s) => ({ ...s, [id]: false }));
     }
   }
 
@@ -500,20 +539,46 @@ export function BackendProfilesPanel({
               const session = id === "claude-code" ? masterCliSession : codexCliSession;
               const ready = Boolean(session?.available);
               return (
-                <label key={id} className={`bp-master-option ${masterBrain === id ? "bp-master-option-selected" : ""}`}>
-                  <input
-                    type="radio"
-                    name="master-brain"
-                    value={id}
-                    checked={masterBrain === id}
-                    disabled={masterBrainSaving}
-                    onChange={() => void handleMasterBrainChange(id)}
-                  />
-                  <span>{t.masterBrainOptionLabel(id)}</span>
-                  <span className={`bp-status-pill ${ready ? "bp-status-ok" : "bp-status-bad"}`}>
-                    {ready ? t.cliSessionConfigured : t.cliSessionUnavailable}
-                  </span>
-                </label>
+                <div key={id} className={`bp-master-option ${masterBrain === id ? "bp-master-option-selected" : ""}`}>
+                  <label className="bp-master-option-radio-row">
+                    <input
+                      type="radio"
+                      name="master-brain"
+                      value={id}
+                      checked={masterBrain === id}
+                      disabled={masterBrainSaving}
+                      onChange={() => void handleMasterBrainChange(id)}
+                    />
+                    <span>{t.masterBrainOptionLabel(id)}</span>
+                    <span className={`bp-status-pill ${ready ? "bp-status-ok" : "bp-status-bad"}`}>
+                      {ready ? t.cliSessionConfigured : t.cliSessionUnavailable}
+                    </span>
+                  </label>
+                  <div className="bp-master-model-row">
+                    <label className="sr-only" htmlFor={`master-model-${id}`}>
+                      {t.masterModelFieldLabel(id)}
+                    </label>
+                    <input
+                      id={`master-model-${id}`}
+                      type="text"
+                      placeholder={t.masterModelPlaceholder(id)}
+                      value={modelDrafts[id]}
+                      disabled={modelSaving[id]}
+                      onChange={(e) => setModelDrafts((s) => ({ ...s, [id]: e.target.value }))}
+                    />
+                    <button type="button" onClick={() => void handleSaveModel(id)} disabled={modelSaving[id]}>
+                      {modelSaving[id] ? t.savingButton : t.saveButton}
+                    </button>
+                  </div>
+                  {modelSaved[id] && !modelSaving[id] && !modelError[id] && (
+                    <div className="bp-save-success">{t.masterModelSaved}</div>
+                  )}
+                  {modelError[id] && (
+                    <div className="bp-form-error" role="alert">
+                      {modelError[id]}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

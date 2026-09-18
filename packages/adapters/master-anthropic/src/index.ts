@@ -91,6 +91,8 @@ export interface AnthropicMasterBrainOptions {
   command?: string;
   timeoutMs?: number;
   cwd?: string;
+  /** v0.22.1: explicit `--model` value (e.g. "sonnet", "opus", or a full model id) — takes priority over the AI_OFFICE_MASTER_MODEL/ANTHROPIC_MASTER_MODEL env vars, which remain the fallback for an operator who hasn't set this through the UI. Unset/empty means no --model flag at all (the CLI's own default). */
+  model?: string;
 }
 
 /**
@@ -118,6 +120,7 @@ export class AnthropicMasterBrain implements MasterBrain {
         command: options.command,
         timeoutMs: options.timeoutMs,
         cwd: options.cwd,
+        model: options.model,
       });
   }
 
@@ -195,6 +198,7 @@ function createClaudeHeadlessRunner(options: {
   command?: string;
   timeoutMs?: number;
   cwd?: string;
+  model?: string;
 }): HeadlessRunner {
   const command = options.command ?? process.env.AI_OFFICE_CLAUDE_COMMAND ?? "claude";
   const configuredTimeout = Number(process.env.AI_OFFICE_MASTER_TIMEOUT_MS);
@@ -225,7 +229,7 @@ function createClaudeHeadlessRunner(options: {
       ];
       if (schema) args.push("--json-schema", JSON.stringify(schema));
 
-      const model = process.env.AI_OFFICE_MASTER_MODEL ?? process.env.ANTHROPIC_MASTER_MODEL;
+      const model = options.model ?? process.env.AI_OFFICE_MASTER_MODEL ?? process.env.ANTHROPIC_MASTER_MODEL;
       if (model?.trim()) args.push("--model", model.trim());
 
       const child = spawn(command, args, {

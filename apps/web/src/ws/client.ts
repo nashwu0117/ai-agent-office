@@ -23,6 +23,8 @@ export type ServerMessage =
       defaultBackendProfile?: string | null;
       /** v0.22 Part B: which backend currently drives the single Master planner — see apps/server/src/master-brain-store.ts. */
       masterBrain?: "claude-code" | "codex";
+      /** v0.22.1: per-backend --model override, keyed by MasterBrainId. */
+      masterBrainModels?: Partial<Record<"claude-code" | "codex", string>>;
       /** v0.22 Part C: recent dependency handoffs — see HandoffCoordinator. */
       handoffs?: AgentHandoff[];
     };
@@ -185,6 +187,11 @@ export function setDefaultBackendProfile(backendProfile: string | null): Promise
 /** v0.22 Part B: switch which backend drives the single Master planner. Rejected (409) by the server if that backend has no usable login session yet — see index.ts's PUT /api/master-brain. */
 export function setMasterBrain(masterBrain: "claude-code" | "codex"): Promise<void> {
   return jsonRequest("/api/master-brain", "PUT", { masterBrain });
+}
+
+/** v0.22.1: set (or clear, with `model: null`) the `--model` override for one Master Brain backend — independent of which one is currently active. See index.ts's PUT /api/master-brain/model. */
+export function setMasterBrainModel(masterBrain: "claude-code" | "codex", model: string | null): Promise<void> {
+  return jsonRequest("/api/master-brain/model", "PUT", { masterBrain, model });
 }
 
 /** v0.15: refused (409) if any agent is still pinned to this profile — see index.ts's DELETE handler. */

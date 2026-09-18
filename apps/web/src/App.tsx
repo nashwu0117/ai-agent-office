@@ -78,6 +78,7 @@ export default function App() {
   const [backendProfiles, setBackendProfiles] = useState<BackendProfileClientInfo[]>([]);
   const [defaultBackendProfile, setDefaultBackendProfileState] = useState<string | null>(null);
   const [masterBrain, setMasterBrainState] = useState<"claude-code" | "codex">("claude-code");
+  const [masterBrainModels, setMasterBrainModels] = useState<Partial<Record<"claude-code" | "codex", string>>>({});
   const [handoffs, setHandoffs] = useState<AgentHandoff[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<number | null>(null);
   const [backendPanelOpen, setBackendPanelOpen] = useState(false);
@@ -118,6 +119,7 @@ export default function App() {
         setBackendProfiles(msg.backendProfiles ?? []);
         setDefaultBackendProfileState(msg.defaultBackendProfile ?? null);
         setMasterBrainState(msg.masterBrain ?? "claude-code");
+        setMasterBrainModels(msg.masterBrainModels ?? {});
         setHandoffs(msg.handoffs ?? []);
         setAnnouncement(tRef.current.announceSnapshot(msg.agents.length, msg.tasks.length));
         return;
@@ -125,6 +127,7 @@ export default function App() {
 
       if (msg.type === "master_brain_changed") {
         setMasterBrainState(msg.masterBrain === "codex" ? "codex" : "claude-code");
+        setMasterBrainModels(msg.models as Partial<Record<"claude-code" | "codex", string>>);
         return;
       }
 
@@ -884,6 +887,7 @@ export default function App() {
         backendProfiles={backendProfiles}
         defaultBackendProfile={defaultBackendProfile}
         masterBrain={masterBrain}
+        masterBrainModels={masterBrainModels}
         agents={agents}
         onRefreshCredentials={() => fetchCredentialStatuses().then(setCredentialStatuses)}
       />

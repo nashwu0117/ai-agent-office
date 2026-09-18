@@ -238,6 +238,10 @@ export interface Translations {
   masterBrainSelectorSaving: string;
   masterBrainSelectorSaved: string;
   masterBrainCredentialMissing: (label: string, hint: string) => string;
+  /** v0.22.1: per-backend --model override field. */
+  masterModelFieldLabel: (id: string) => string;
+  masterModelPlaceholder: (id: string) => string;
+  masterModelSaved: string;
 
   // v0.22 Part C: meeting-room handoff visualization + click-to-view transcript.
   meetingRoomStatusBusy: string;
@@ -593,6 +597,10 @@ const en: Translations = {
   masterBrainSelectorSaving: "Saving…",
   masterBrainSelectorSaved: "Saved — the next goal will use this backend.",
   masterBrainCredentialMissing: (label, hint) => `${label} has no usable login session yet. ${hint}`,
+  masterModelFieldLabel: (id) => `Model for ${id === "codex" ? "Codex CLI" : "Claude Code CLI"}`,
+  masterModelPlaceholder: (id) =>
+    id === "codex" ? "e.g. gpt-5-codex — leave blank for the CLI's own default" : "e.g. sonnet, opus — leave blank for the CLI's own default",
+  masterModelSaved: "Saved — the next plan()/summarize() call will use this model.",
 
   meetingRoomStatusBusy: "In session",
   meetingRoomStatusIdle: "Idle",
@@ -859,6 +867,9 @@ const zhTW: Translations = {
   masterBrainSelectorSaving: "儲存中…",
   masterBrainSelectorSaved: "已儲存——下一次規劃會使用這個後端。",
   masterBrainCredentialMissing: (label, hint) => `${label} 目前沒有可用的登入工作階段。${hint}`,
+  masterModelFieldLabel: (id) => `${id === "codex" ? "Codex CLI" : "Claude Code CLI"} 的模型`,
+  masterModelPlaceholder: (id) => (id === "codex" ? "例如 gpt-5-codex——留空則使用 CLI 自己的預設值" : "例如 sonnet、opus——留空則使用 CLI 自己的預設值"),
+  masterModelSaved: "已儲存——下一次呼叫 plan()/summarize() 會使用這個模型。",
 
   meetingRoomStatusBusy: "會議進行中",
   meetingRoomStatusIdle: "空閒中",

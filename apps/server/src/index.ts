@@ -405,16 +405,19 @@ const orchestrator = new Orchestrator({
   },
 });
 
-// v0.22 Part B: MasterBrainRegistry — the fixed set of backends this server
-// can drive the single Master planner with (see docs on why this couldn't
-// just be another BackendProfile row). Constructing either never throws
-// without its respective login/credential: both adapters resolve their own
-// CredentialRouter provider lazily, at the first real plan()/summarize()
-// call, not at construction time.
-const masterBrains: Record<MasterBrainId, MasterBrain> = {
-  "claude-code": new AnthropicMasterBrain(credentialRouter),
-  codex: new CodexMasterBrain(credentialRouter),
-};
+// v0.22 Part B (+ v0.22.1 per-backend model choice): the fixed set of
+// backends this server can drive the single Master planner with (see docs
+// on why this couldn't just be another BackendProfile row). Constructing
+// either never throws without its respective login/credential: both
+// adapters resolve their own CredentialRouter provider lazily, at the first
+// real plan()/summarize() call, not at construction time.
+//
+// v0.22.1: instances are no longer built once and kept forever — an
+// operator picking a model (not just a backend) means the currently active
+// instance needs to be rebuilt with that model baked into its own headless
+// runner (see AnthropicMasterBrainOptions.model/CodexMasterBrainOptions.model),
+// so buildMasterBrain() always constructs fresh from masterBrainStore's
+// current persisted model for that id.
 const MASTER_BRAIN_LABELS: Record<MasterBrainId, string> = {
   "claude-code": "Claude Code CLI (Claude.ai subscription login)",
   codex: "Codex CLI (ChatGPT/API login)",
@@ -425,7 +428,12 @@ const MASTER_BRAIN_CREDENTIAL_PROVIDER: Record<MasterBrainId, string> = {
 };
 const masterBrainStore = new MasterBrainStore(`${DATA_DIR}master-brain.json`);
 
-const master = masterBrains[masterBrainStore.get()];
+function buildMasterBrain(id: MasterBrainId): MasterBrain {
+  const model = masterBrainStore.getModel(id);
+  return id === "codex" ? new CodexMasterBrain(credentialRouter, { model }) : new AnthropicMasterBrain(credentialRouter, { model });
+}
+
+const master = buildMasterBrain(masterBrainStore.get());
 goalCoordinator = new GoalCoordinator({ orchestrator, master, broadcast });
 handoffCoordinator = new HandoffCoordinator({ orchestrator, broadcast });
 
@@ -466,6 +474,8 @@ wss.on("connection", (socket) => {
       defaultBackendProfile: defaultBackendStore.get(),
       // v0.22 Part B: which backend currently drives the single Master planner.
       masterBrain: masterBrainStore.get(),
+      // v0.22.1: per-backend --model override, keyed by MasterBrainId — see master-brain-store.ts.
+      masterBrainModels: masterBrainStore.getModels(),
       // v0.22 Part C: recent dependency handoffs — see HandoffCoordinator.
       handoffs: handoffCoordinator.list(),
     })
@@ -828,14 +838,17 @@ app.put("/api/default-backend-profile", (req, res) => {
 // per-provider check the Backend & Credentials panel's status pill already
 // uses (GET /api/credentials), surfaced again here so the selector UI can
 // show it inline without a second round trip.
+const MASTER_BRAIN_IDS: MasterBrainId[] = ["claude-code", "codex"];
+
 app.get("/api/master-brain", (_req, res) => {
   const current = masterBrainStore.get();
   res.json({
     current,
-    options: (Object.keys(masterBrains) as MasterBrainId[]).map((id) => ({
+    options: MASTER_BRAIN_IDS.map((id) => ({
       id,
       label: MASTER_BRAIN_LABELS[id],
       credentialReady: Boolean(credentialRouter.resolve(MASTER_BRAIN_CREDENTIAL_PROVIDER[id])),
+      model: masterBrainStore.getModel(id) ?? null,
     })),
   });
 });
@@ -862,9 +875,37 @@ app.put("/api/master-brain", (req, res) => {
   }
 
   masterBrainStore.set(id);
-  goalCoordinator.setMaster(masterBrains[id]);
-  broadcast({ type: "master_brain_changed", masterBrain: id });
-  res.json({ current: id });
+  goalCoordinator.setMaster(buildMasterBrain(id));
+  broadcast({ type: "master_brain_changed", masterBrain: id, models: masterBrainStore.getModels() });
+  res.json({ current: id, model: masterBrainStore.getModel(id) ?? null });
+});
+
+// v0.22.1: the operator asked to be able to pick the *model* Master uses,
+// not just which CLI/login it runs on. Stored per-backend id (see
+// MasterBrainStore) so switching backends never clobbers the other one's
+// choice. Only rebuilds/repoints the live Master instance when the edited
+// id is the one currently selected — editing the other (currently inactive)
+// backend's model just persists it for whenever it's selected later.
+app.put("/api/master-brain/model", (req, res) => {
+  const rawId = req.body?.masterBrain;
+  if (rawId !== "claude-code" && rawId !== "codex") {
+    res.status(400).json({ error: 'masterBrain must be "claude-code" or "codex"' });
+    return;
+  }
+  const rawModel = req.body?.model;
+  if (rawModel !== null && rawModel !== undefined && typeof rawModel !== "string") {
+    res.status(400).json({ error: "model must be a string, or null/undefined to clear it" });
+    return;
+  }
+  const id = rawId as MasterBrainId;
+  const model = typeof rawModel === "string" ? rawModel : undefined;
+
+  masterBrainStore.setModel(id, model);
+  if (masterBrainStore.get() === id) {
+    goalCoordinator.setMaster(buildMasterBrain(id));
+  }
+  broadcast({ type: "master_brain_changed", masterBrain: masterBrainStore.get(), models: masterBrainStore.getModels() });
+  res.json({ masterBrain: id, model: masterBrainStore.getModel(id) ?? null });
 });
 
 // v0.18: last middleware, catches anything an /api handler threw (Express 4
@@ -894,7 +935,10 @@ httpServer.listen(PORT, () => {
   const authTokenState = process.env.ANTHROPIC_AUTH_TOKEN?.trim() ? "set" : "unset";
   const baseUrlState = process.env.ANTHROPIC_BASE_URL?.trim() ? "set" : "unset";
   const currentMasterBrain = masterBrainStore.get();
-  console.log(`[ai-office] Master Brain: ${MASTER_BRAIN_LABELS[currentMasterBrain]} (selected id: ${currentMasterBrain})`);
+  const currentMasterBrainModel = masterBrainStore.getModel(currentMasterBrain);
+  console.log(
+    `[ai-office] Master Brain: ${MASTER_BRAIN_LABELS[currentMasterBrain]} (selected id: ${currentMasterBrain}${currentMasterBrainModel ? `, model: ${currentMasterBrainModel}` : ""})`
+  );
   console.log(
     `[ai-office] Master Brain login session: ${credentialRouter.resolve(MASTER_BRAIN_CREDENTIAL_PROVIDER[currentMasterBrain]) ? "available" : "UNAVAILABLE — the next goal submission will fail fast until this is fixed"}`
   );
