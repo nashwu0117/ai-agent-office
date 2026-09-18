@@ -32,8 +32,17 @@ export interface BackendProfile {
    * packages/core/src/proxy and docs/api-format-translation.md — the
    * translation is lossy in documented, specific ways, never a silent
    * best-effort pretending the two APIs are equivalent.
+   *
+   * v0.21: a third value, "unset", was added for a profile whose wire format
+   * genuinely isn't known yet (see vyceai's seed profile in index.ts — no
+   * public documentation of its API shape was found, so this project
+   * deliberately does not guess). A profile with apiFormat "unset" is never
+   * `available` and the proxy refuses to route it with a clear
+   * configuration error instead of misinterpreting its bytes — see
+   * backend-profile-store.ts's toClientInfo and proxy-server.ts's
+   * handleRequest.
    */
-  apiFormat: "anthropic" | "openai-chat-completions";
+  apiFormat: "anthropic" | "openai-chat-completions" | "unset";
   /**
    * v0.11: env var this server reads a fixed model slug from, substituted
    * for the Anthropic model string the `claude` CLI sends before forwarding
@@ -46,6 +55,7 @@ export interface BackendProfile {
    * passthroughToAnthropic rewrites the body's `model` field when this is
    * set and has a value) — no longer openai-chat-completions-only. Undefined
    * means "no override", the original v0.9 behavior.
+   *
    */
   modelOverrideEnvVar?: string;
 }
@@ -77,7 +87,7 @@ export interface BackendProfileClientInfo {
    * Undefined when modelOverrideEnvVar is unset or empty.
    */
   currentModel?: string;
-  /** Whether both baseUrlEnvVar and authTokenEnvVar are currently set (non-empty) on this server's process — never proves the values are valid credentials, only present. */
+  /** Whether both baseUrlEnvVar and authTokenEnvVar are currently set (non-empty) on this server's process, AND apiFormat isn't "unset" — never proves the values are valid credentials, only present and structurally usable. */
   available: boolean;
 }
 

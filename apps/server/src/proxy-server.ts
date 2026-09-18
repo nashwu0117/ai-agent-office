@@ -81,6 +81,22 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
     return;
   }
 
+  // v0.21: a profile whose wire format was never picked (see
+  // BackendProfile.apiFormat's "unset" doc comment) is caught here, before
+  // any credential lookup — a clear configuration error, not a guess at
+  // which branch below to send its bytes down.
+  if (profile.apiFormat === "unset") {
+    res.writeHead(500, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: `Backend profile "${profileId}" has no API format selected yet — pick "Anthropic Messages API" or "OpenAI Chat Completions" for it in the Backend & Credentials panel before dispatching a task through it.`,
+        },
+      })
+    );
+    return;
+  }
+
   const baseUrl = process.env[profile.baseUrlEnvVar];
   const authToken = process.env[profile.authTokenEnvVar];
   if (!baseUrl || !authToken) {

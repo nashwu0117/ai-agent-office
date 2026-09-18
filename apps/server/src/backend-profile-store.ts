@@ -3,7 +3,10 @@ import { dirname } from "node:path";
 import type { BackendProfile, BackendProfileClientInfo, BackendProfileRegistry } from "@ai-office/core";
 import { upsertEnvVar } from "./env-file-store.js";
 
-const VALID_API_FORMATS = new Set<BackendProfile["apiFormat"]>(["anthropic", "openai-chat-completions"]);
+// v0.21: "unset" is a real, persistable state (see BackendProfile.apiFormat's
+// own doc comment) — a profile whose wire format genuinely isn't known yet,
+// left for the operator to pick manually rather than guessed by this code.
+const VALID_API_FORMATS = new Set<BackendProfile["apiFormat"]>(["anthropic", "openai-chat-completions", "unset"]);
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // v0.15: baseUrlEnvVar/authTokenEnvVar/modelOverrideEnvVar are meant to hold
 // the *name* of an env var this server reads at runtime — never the secret
@@ -230,6 +233,7 @@ function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
     authTokenEnvVar: profile.authTokenEnvVar,
     ...(profile.modelOverrideEnvVar ? { modelOverrideEnvVar: profile.modelOverrideEnvVar } : {}),
     ...(currentModel ? { currentModel } : {}),
-    available: Boolean(baseUrl?.trim()) && Boolean(authToken?.trim()),
+    // v0.21: "unset" apiFormat is never available — see BackendProfile.apiFormat's doc comment.
+    available: profile.apiFormat !== "unset" && Boolean(baseUrl?.trim()) && Boolean(authToken?.trim()),
   };
 }

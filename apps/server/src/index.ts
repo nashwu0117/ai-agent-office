@@ -164,60 +164,90 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
     authTokenEnvVar: "AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN",
     apiFormat: "anthropic",
   },
+
+  // v0.21: vyceai — first time this project connects to it. Researched live
+  // (WebSearch across vyceai.com's own marketing copy, LMSpeed's provider
+  // page, a GitHub issue proposing it as a provider for another project, and
+  // a third-party "pi" model-provider extension package) rather than
+  // guessed: vyceai.com's own copy claims "full OpenAI & Anthropic SDK
+  // compatibility — drop-in replacement, zero code changes", and the
+  // independent "pi-vyceai-provider" package describes it as "14+ models
+  // via OpenAI-compatible proxy" with `sk-`-prefixed keys and a live
+  // `/v1/models` endpoint — but no official vyceai API documentation page
+  // (no docs.vyceai.com/api.vyceai.com, and vyceai.com's own site did not
+  // yield a docs section through a plain fetch) was found to confirm the
+  // exact base URL or pin down "OpenAI *and* Anthropic" vs. "OpenAI only" as
+  // read by *this* proxy's two supported apiFormats. Per the v0.21 build
+  // prompt's explicit instruction not to guess: apiFormat is left "unset"
+  // (see BackendProfile.apiFormat's doc comment) and baseUrlEnvVar/
+  // authTokenEnvVar are left as placeholder names for the operator to fill
+  // in — through the Backend & Credentials panel — once they have a real key
+  // and have confirmed which format it actually speaks.
+  "vyceai-1": {
+    id: "vyceai-1",
+    label: "vyceai API",
+    baseUrlEnvVar: "AI_OFFICE_BACKEND_VYCEAI_1_BASE_URL",
+    authTokenEnvVar: "AI_OFFICE_BACKEND_VYCEAI_1_AUTH_TOKEN",
+    apiFormat: "unset",
+  },
 };
 
 // Fixed roster for this phase: a stand-in for a future "what can this agent
 // do" profile. Master LLM capability inference would populate this
 // differently later, but the Orchestrator's matching logic wouldn't change.
-// agent-04/05 also double as the mixed-runtime demo: same capability
-// class as v0.3, now backed by a different CLI underneath. agent-08/09/10
-// below now double as the mixed-backend demo agent-02 originally was (v0.8)
-// — routed through a different API backend so they don't spend the official
-// Anthropic quota agent-01/03 use; see v0.15's removal of agent-02's own
-// backendProfile default.
 //
 // v0.10: each entry's backendProfile is only the *default* now — the
 // management UI's per-agent reassignment (PUT /api/agents/:id/backend-profile)
 // persists an override in AgentBackendAssignmentStore that takes priority;
 // see the `resolve()` calls below where agents are actually registered.
+//
+// v0.21: rebuilt to the operator's current 13-agent provider lineup,
+// replacing the 15-agent (14 committed + 1 uncommitted, see below) roster
+// this grew into across v0.3-v0.16. Renumbered agent-01..13 cleanly rather
+// than keeping the old ids with gaps — nothing persists state keyed by
+// agent id across this rebuild (AgentBackendAssignmentStore/
+// DefaultBackendStore are local per-agent-id override files, harmlessly
+// orphaned by a renumbering; real credentials live in apps/server/.env.local
+// keyed by *profile* id, e.g. AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL, untouched
+// by this). Old id -> new id, for anyone cross-referencing earlier docs/
+// commits: 01->01 (official), 03->02 (official; 02's own official slot was
+// dropped, see below), 04->03 (opencode; 05's duplicate opencode slot was
+// dropped), 06->04 (codex), 07->05 (cline), 08..14 -> 06..12 (nvidia-1/2/3,
+// bai-1/2/3, experientiallabs-1, unchanged mapping/order), new 13th slot ->
+// vyceai-1 (see DEFAULT_BACKEND_PROFILES above).
+//
+// Three agents from the pre-v0.21 roster were dropped to fit the operator's
+// explicit new counts (2 official / 1 opencode / 1 codex, not 3/2/2) rather
+// than kept "just in case" — flagging this plainly instead of assuming:
+//   - agent-02 (a 3rd official Claude Code agent, no backendProfile)
+//   - agent-05 (a 2nd OpenCode agent)
+//   - agent-15 (a 2nd Codex agent) — this one was *uncommitted*, added in an
+//     in-progress v0.20 session (see the pre-v0.21 git diff) that had
+//     already verified it dispatches real tasks successfully via `codex
+//     exec`. That verification result isn't lost — see the v0.21 report —
+//     just the roster slot, since the v0.21 spec's target table is explicit
+//     about "Codex CLI: 1 個".
+// If any of these three should come back, that's a one-line re-add, not a
+// re-architecture — nothing else in this file depends on there being
+// exactly 13.
 const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: string; backendProfile?: string }> = {
   "agent-01": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  // v0.15: was backendProfile: "nvidia" — that profile (a lone, pre-v0.13
-  // leftover, separate from the nvidia-1/2/3 the operator actually wants)
-  // has been deleted at their request; agent-02's own persisted override was
-  // already "official" regardless, so this was dead weight, not a live change.
   "agent-02": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-03": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-04": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
-  "agent-05": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
-  // v0.15: was runtime: "claude-code", backendProfile: "mock-openai" (a
-  // v0.9 demo of the translated-backend path that only does anything when
-  // apps/server/src/dev/mock-openai-backend.ts is separately started by
-  // hand — not useful day to day). Reassigned to a real, distinct runtime
-  // instead, at the operator's request: CodexAdapter (OpenAI's Codex CLI,
-  // its own `codex exec` process — not a claude-code backendProfile, an
-  // entirely different adapter, see packages/adapters/codex). The
-  // "mock-openai" BackendProfile itself is untouched for anyone who wants
-  // to exercise the proxy's translation path directly.
-  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "codex" },
-  // v0.13: Cline CLI (free-quota runtime) — see
-  // packages/adapters/cline and docs/runtime-research-v0.13.md.
-  "agent-07": { eligibleCapabilities: ["frontend", "docs"], runtime: "cline" },
-  // v0.13 Part D: agent-01/agent-03 above already cover the "2 official"
-  // requirement; these seven are the new backend-profile-routed agents —
-  // one per newly-registered profile (see DEFAULT_BACKEND_PROFILES above
-  // and docs/backend-profiles-v0.13.md for their env vars).
-  "agent-08": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-1" },
-  "agent-09": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-2" },
-  "agent-10": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-3" },
-  "agent-11": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-1" },
-  "agent-12": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-2" },
-  "agent-13": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-3" },
-  "agent-14": {
+  "agent-03": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
+  "agent-04": { eligibleCapabilities: ["backend", "testing"], runtime: "codex" },
+  "agent-05": { eligibleCapabilities: ["frontend", "docs"], runtime: "cline" },
+  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-1" },
+  "agent-07": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-2" },
+  "agent-08": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-3" },
+  "agent-09": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-1" },
+  "agent-10": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-2" },
+  "agent-11": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-3" },
+  "agent-12": {
     eligibleCapabilities: ["backend", "testing"],
     runtime: "claude-code",
     backendProfile: "experientiallabs-1",
   },
+  "agent-13": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "vyceai-1" },
 };
 
 // v0.18: CORS + access-auth hardening for the Cloudflare Tunnel exposure —

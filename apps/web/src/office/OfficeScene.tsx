@@ -16,17 +16,25 @@ const SCREEN_TILE = TILE * ZOOM;
 
 // v0.15: grown from 20x12 to 25x15 (same 5:3 aspect ratio the CSS
 // `.office-canvas canvas` rule assumes) to fit a third desk row and a wider
-// walkway — AGENT_ROSTER grew to 14 agents in v0.13 but this scene still
-// only had 6 desk/home slots, so agents 7-14 landed exactly on top of
-// agents 1-6 (same modulo'd slot) and their labels visibly overlapped.
+// walkway — AGENT_ROSTER had grown past 6 agents and this scene still only
+// had 6 desk/home slots, so later agents landed exactly on top of earlier
+// ones (same modulo'd slot) and their labels visibly overlapped. Kept at
+// this size in v0.21 even though the roster shrank back to 13 (see
+// AGENT_ROSTER's v0.21 comment in apps/server/src/index.ts) — still needed
+// for 13 non-overlapping slots below, just with fewer desks per row.
 const COLS = 25;
 const ROWS = 15;
 const WIDTH = COLS * SCREEN_TILE;
 const HEIGHT = ROWS * SCREEN_TILE;
 
-// Three rows of desks (5 + 5 + 4 = 14) inside the widened open-office block
+// Three rows of desks (5 + 5 + 3 = 13) inside the widened open-office block
 // (tx 4-19, ty 1-9), same desk/seat spacing pattern as the original 6-desk
-// layout, just repeated for a third row.
+// layout, just repeated for a third (partial) row — one desk per
+// claude-code AGENT_ROSTER entry (v0.21: 13 of them; the 5 CLI-login/direct
+// agents below get their own PUBLIC_HOMES slots instead, so all 13 desks
+// here map 1:1 to the profile-routed agents, with a little headroom to
+// spare in v0.21's actual count — see buildDecor's own comment on where
+// this array is consumed).
 const WORKSTATIONS = [
   { desk: [6, 2], seat: [6.5, 3] },
   { desk: [9, 2], seat: [9.5, 3] },
@@ -41,12 +49,12 @@ const WORKSTATIONS = [
   { desk: [6, 8], seat: [6.5, 9] },
   { desk: [9, 8], seat: [9.5, 9] },
   { desk: [12, 8], seat: [12.5, 9] },
-  { desk: [15, 8], seat: [15.5, 9] },
 ] as const;
 
-// Two rows of 7 in the central walkway between the meeting room (tx <= 6)
-// and the lounge (tx >= 18), spaced 1.5 tiles (72px) apart — comfortably
-// wider than an agent-id label (~62px) so 14 labels never collide.
+// Two rows in the central walkway between the meeting room (tx <= 6) and the
+// lounge (tx >= 18), spaced 1.5 tiles (72px) apart — comfortably wider than
+// an agent-id label (~62px) so labels never collide. v0.21: trimmed back to
+// 13 (7 + 6) from the v0.16 15-slot layout, matching the smaller roster.
 const PUBLIC_HOMES = [
   [7.5, 12.3],
   [9.0, 12.3],
@@ -61,7 +69,6 @@ const PUBLIC_HOMES = [
   [12.0, 13.8],
   [13.5, 13.8],
   [15.0, 13.8],
-  [16.5, 13.8],
 ] as const;
 const HORIZONTAL_DIVIDER_ROW = 10;
 const HORIZONTAL_GAPS = new Set([3, 4, 9, 10, 15, 16, 20, 21]);
@@ -433,8 +440,8 @@ function buildDecor(layer: Container, textures: Record<AssetKey, Texture>): void
   placeTile(layer, textures.stool, 2, 5);
   placeTile(layer, textures.bookshelf, 0, 5);
 
-  // Main office: three complete desk rows, one workstation per registered
-  // agent (14, matching AGENT_ROSTER — see WORKSTATIONS above).
+  // Main office: three desk rows (two full, one partial), 13 workstations —
+  // see WORKSTATIONS above.
   addZoneSign(layer, "OPEN OFFICE", 11.5, 1.25, 0x5fc98f);
   for (const workstation of WORKSTATIONS) {
     placeTile(layer, textures.desk_monitor, workstation.desk[0], workstation.desk[1]);
