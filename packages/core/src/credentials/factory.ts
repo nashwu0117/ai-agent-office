@@ -68,6 +68,13 @@ export function createDefaultCredentialRouter(onChange?: (statuses: CredentialSo
     new StaticCredentialSource("opencode-cli-session", "opencode-native", () =>
       existsSync(join(homedir(), ".local", "share", "opencode", "auth.json"))
     ),
+
+    // v0.15: Codex CLI (OpenAI) — a genuinely different runtime from Claude
+    // Code, not built on top of it (see CodexAdapter). `codex login`/`codex
+    // doctor` confirmed this exact path as its auth store in this
+    // environment (works for both a ChatGPT-subscription login and an
+    // --with-api-key login — both land in the same auth.json).
+    new StaticCredentialSource("codex-cli-session", "codex-native", () => existsSync(join(homedir(), ".codex", "auth.json"))),
   ];
 
   return new InMemoryCredentialRouter(sources, onChange);

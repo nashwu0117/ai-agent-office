@@ -20,6 +20,12 @@ const CLI_STATE_DIRS = [
   `${HOME}/.local/share/opencode`,
   `${HOME}/.config/opencode`,
   `${HOME}/.cache/opencode`,
+  // v0.15: verified by hand that `codex exec` hard-fails without this —
+  // "Error: failed to initialize in-process app-server client: Read-only
+  // file system (os error 30)" — it needs to write its own session/auth/
+  // app-server-daemon state under here (see `codex doctor`'s "auth file
+  // ~/.codex/auth.json" / "daemon state dir ~/.codex/app-server-daemon").
+  `${HOME}/.codex`,
 ];
 
 let bwrapAvailable: boolean | undefined;

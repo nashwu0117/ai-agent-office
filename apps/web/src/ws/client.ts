@@ -146,3 +146,22 @@ export function setAgentBackendProfile(agentId: string, backendProfile: string |
 export function setDefaultBackendProfile(backendProfile: string | null): Promise<void> {
   return jsonRequest("/api/default-backend-profile", "PUT", { backendProfile });
 }
+
+/** v0.15: refused (409) if any agent is still pinned to this profile — see index.ts's DELETE handler. */
+export async function deleteBackendProfile(id: string): Promise<void> {
+  const res = await fetch(`/api/backend-profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+}
+
+/** v0.15: real model ids the profile's own configured key can access — see index.ts's GET handler. */
+export async function fetchBackendProfileModels(id: string): Promise<string[]> {
+  const res = await fetch(`/api/backend-profiles/${encodeURIComponent(id)}/models`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+  return body.models ?? [];
+}

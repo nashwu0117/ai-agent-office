@@ -18,10 +18,21 @@
   color: #e6e8ef;
   border-radius: 8px;
   border: 1px solid #333a4d;
-  max-width: 900px;
+  max-width: 1280px;
   width: 100%;
   padding: 1.5rem;
+  overflow-x: hidden;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+@media (max-width: 650px) {
+  .bp-overlay {
+    padding: 1rem 0.5rem;
+  }
+
+  .bp-panel {
+    padding: 1rem 0.85rem;
+  }
 }
 
 .bp-panel-header {
@@ -129,6 +140,11 @@
   font-style: italic;
 }
 
+.bp-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
 .bp-table {
   width: 100%;
   border-collapse: collapse;
@@ -140,6 +156,7 @@
   text-align: left;
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid #2b3143;
+  white-space: nowrap;
 }
 
 .bp-status-pill {
@@ -159,6 +176,64 @@
   color: #f87171;
 }
 
+.bp-row-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.bp-model-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.bp-fetch-models-btn {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.bp-models-cell {
+  white-space: normal;
+  background: #20242f;
+}
+
+.bp-model-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.5rem;
+  margin-top: 0.4rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.bp-model-list button {
+  background: #262b3a;
+  border: 1px solid #444c63;
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.bp-model-list button:hover:not(:disabled) {
+  border-color: #6b7590;
+  background: #2c3244;
+}
+
+.bp-model-list button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.bp-model-list button.bp-model-current {
+  border-color: #34d399;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+}
+
 .bp-new-form,
 .bp-edit-form {
   margin-top: 1rem;
@@ -176,6 +251,18 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 0.6rem;
+}
+
+/* Env var name fields hold long strings (e.g.
+   AI_OFFICE_BACKEND_MY_PROVIDER_BASE_URL) — give them the full row width
+   instead of squeezing into one auto-fit grid column, and grow wider than
+   the short id/label fields in the edit-form's flex row. */
+.bp-new-form-grid .bp-field-wide {
+  grid-column: 1 / -1;
+}
+
+.bp-edit-form input.bp-field-wide {
+  flex: 1 1 320px;
 }
 
 .bp-new-form-grid label,
@@ -214,6 +301,8 @@
   color: #e6e8ef;
   border-radius: 4px;
   padding: 0.35rem 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .bp-new-form button,

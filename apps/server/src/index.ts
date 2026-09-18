@@ -14,6 +14,7 @@ import { GitRepoGuard, createDefaultCredentialRouter } from "@ai-office/core/nod
 import { ClaudeCodeAdapter } from "@ai-office/adapter-claude-code";
 import { OpenCodeAdapter } from "@ai-office/adapter-opencode";
 import { ClineAdapter } from "@ai-office/adapter-cline";
+import { CodexAdapter } from "@ai-office/adapter-codex";
 import { AnthropicMasterBrain } from "@ai-office/adapter-master-anthropic";
 import { startFormatTranslationProxy } from "./proxy-server.js";
 import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
@@ -42,6 +43,13 @@ const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 // below). Deliberately plain JSON files, not a database: see the v0.10 build
 // prompt's explicit "not an enterprise config management system" scope note.
 const DATA_DIR = fileURLToPath(new URL("../data/", import.meta.url));
+// v0.15: where BackendProfileStore auto-provisions a real value pasted into
+// the management UI instead of an env var name — see backend-profile-store
+// .ts's resolveEnvVarField and env-file-store.ts. Same file `tsx
+// --env-file-if-exists=.env.local` (see package.json's start script) loads
+// at process boot, so anything written here on a later edit takes effect
+// immediately in-process and also survives the next restart.
+const ENV_LOCAL_PATH = fileURLToPath(new URL("../.env.local", import.meta.url));
 
 // v0.8: per-agent API backend for claude-code agents, resolved to per-process
 // env overrides by ClaudeCodeAdapter (packages/adapters/claude-code) via
@@ -59,17 +67,13 @@ const DATA_DIR = fileURLToPath(new URL("../data/", import.meta.url));
 // edits a profile), that file is authoritative and this constant is never
 // consulted again. Renamed from BACKEND_PROFILES to make that explicit.
 const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
-  nvidia: {
-    id: "nvidia",
-    label: "NVIDIA API",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_AUTH_TOKEN",
-    // v0.8's assumption, made explicit by v0.9's apiFormat field: NVIDIA's
-    // endpoint speaks the Anthropic Messages API shape already, so this
-    // profile passes through the local proxy unmodified (see
-    // proxy-server.ts) — byte-identical behavior to v0.8's direct routing.
-    apiFormat: "anthropic",
-  },
+  // v0.15: the original v0.8 single-key "nvidia" profile was deleted at the
+  // operator's request — they only want the three-key nvidia-1/2/3 spread
+  // below, not this plus three more. Removed from here too (not just via
+  // the DELETE API) so BackendProfileStore's mergeMissingDefaults doesn't
+  // resurrect it as a "new default" on the next restart, the way it
+  // correctly does for an id added by a genuinely newer version of this file.
+  //
   // v0.9 demo/test profile: a backend that only speaks OpenAI Chat
   // Completions, proving the proxy's translation path (not just
   // passthrough) end to end. Start apps/server/src/dev/mock-openai-backend.ts
@@ -118,8 +122,11 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
   // v0.13: three independent b.ai backends. b.ai's Messages endpoint
   // (docs.b.ai/llmservice/api) is the real Anthropic Messages protocol —
   // see docs/runtime-research-v0.13.md — so these are byte-passthrough
-  // "anthropic" profiles, same wire behavior as the "nvidia" profile above,
-  // and never consult a modelOverrideEnvVar (ignored for this apiFormat).
+  // "anthropic" profiles, same wire behavior as the "nvidia" profile above.
+  // v0.15: modelOverrideEnvVar now works for this apiFormat too (rewrites
+  // the request body's `model` field in the proxy) — none hardcoded here
+  // since none are set by default; the management UI's "Fetch models" +
+  // click-to-set assigns one per profile on demand instead.
   "bai-1": {
     id: "bai-1",
     label: "b.ai API #1",
@@ -160,10 +167,11 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
 // do" profile. Master LLM capability inference would populate this
 // differently later, but the Orchestrator's matching logic wouldn't change.
 // agent-04/05 also double as the mixed-runtime demo: same capability
-// class as v0.3, now backed by a different CLI underneath. agent-02 doubles
-// as the mixed-backend demo (v0.8): same runtime as agent-01/03, routed
-// through a different API backend so it doesn't spend the official
-// Anthropic quota those two use.
+// class as v0.3, now backed by a different CLI underneath. agent-08/09/10
+// below now double as the mixed-backend demo agent-02 originally was (v0.8)
+// — routed through a different API backend so they don't spend the official
+// Anthropic quota agent-01/03 use; see v0.15's removal of agent-02's own
+// backendProfile default.
 //
 // v0.10: each entry's backendProfile is only the *default* now — the
 // management UI's per-agent reassignment (PUT /api/agents/:id/backend-profile)
@@ -171,15 +179,24 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
 // see the `resolve()` calls below where agents are actually registered.
 const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: string; backendProfile?: string }> = {
   "agent-01": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-02": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia" },
+  // v0.15: was backendProfile: "nvidia" — that profile (a lone, pre-v0.13
+  // leftover, separate from the nvidia-1/2/3 the operator actually wants)
+  // has been deleted at their request; agent-02's own persisted override was
+  // already "official" regardless, so this was dead weight, not a live change.
+  "agent-02": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
   "agent-03": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
   "agent-04": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
   "agent-05": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
-  // v0.9 demo: same runtime/capabilities as agent-01/03, routed through the
-  // openai-chat-completions mock profile above instead of Anthropic's own
-  // format, to keep an always-registered example of the translated path
-  // (not just passthrough) alongside agent-02's anthropic-format one.
-  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "mock-openai" },
+  // v0.15: was runtime: "claude-code", backendProfile: "mock-openai" (a
+  // v0.9 demo of the translated-backend path that only does anything when
+  // apps/server/src/dev/mock-openai-backend.ts is separately started by
+  // hand — not useful day to day). Reassigned to a real, distinct runtime
+  // instead, at the operator's request: CodexAdapter (OpenAI's Codex CLI,
+  // its own `codex exec` process — not a claude-code backendProfile, an
+  // entirely different adapter, see packages/adapters/codex). The
+  // "mock-openai" BackendProfile itself is untouched for anyone who wants
+  // to exercise the proxy's translation path directly.
+  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "codex" },
   // v0.13: Cline CLI (free-quota runtime) — see
   // packages/adapters/cline and docs/runtime-research-v0.13.md.
   "agent-07": { eligibleCapabilities: ["frontend", "docs"], runtime: "cline" },
@@ -204,7 +221,7 @@ const app = express();
 app.use(express.json());
 
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
 const clients = new Set<WebSocket>();
 
@@ -234,7 +251,7 @@ const credentialRouter = createDefaultCredentialRouter((statuses) => {
 // before the proxy/orchestrator below so both are handed
 // backendProfileStore.registry itself (not a copy), and agents are
 // registered with their resolved (persisted-override-or-default) profile.
-const backendProfileStore = new BackendProfileStore(DEFAULT_BACKEND_PROFILES, `${DATA_DIR}backend-profiles.json`);
+const backendProfileStore = new BackendProfileStore(DEFAULT_BACKEND_PROFILES, `${DATA_DIR}backend-profiles.json`, ENV_LOCAL_PATH);
 const agentAssignments = new AgentBackendAssignmentStore(`${DATA_DIR}agent-backend-assignments.json`);
 // v0.13 Part E: global "default backend profile" layer, applied only to
 // agents with neither an explicit per-agent override nor an AGENT_ROSTER
@@ -261,6 +278,7 @@ const orchestrator = new Orchestrator({
     "claude-code": new ClaudeCodeAdapter(credentialRouter, backendProfileStore.registry, proxyBaseUrl),
     opencode: new OpenCodeAdapter(credentialRouter),
     cline: new ClineAdapter(credentialRouter),
+    codex: new CodexAdapter(credentialRouter),
   },
   workspaceGuard: new GitRepoGuard(REPO_ROOT),
   broadcast: (event) => {
@@ -428,6 +446,88 @@ app.put("/api/backend-profiles/:id", (req, res) => {
       return;
     }
     throw err;
+  }
+});
+
+// v0.15: refuses to delete a profile any currently-registered agent is
+// actually pinned to (resolved effective backendProfile, not just AGENT_
+// ROSTER's hardcoded default — an explicit override elsewhere could still
+// point at it) so this can never silently strand an agent the way a
+// hand-edited backend-profiles.json could.
+app.delete("/api/backend-profiles/:id", (req, res) => {
+  const inUseBy = orchestrator.listAgents().filter((a) => a.backendProfile === req.params.id);
+  if (inUseBy.length > 0) {
+    res.status(409).json({
+      error: `Backend profile "${req.params.id}" is still assigned to ${inUseBy.map((a) => a.id).join(", ")} — reassign ${inUseBy.length === 1 ? "it" : "them"} first.`,
+    });
+    return;
+  }
+  try {
+    backendProfileStore.delete(req.params.id);
+    broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
+    res.status(204).end();
+  } catch (err) {
+    if (err instanceof BackendProfileValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+});
+
+// v0.15: lets the management UI show which model ids a profile's own key
+// actually has access to, instead of the operator guessing a string to paste
+// into modelOverrideEnvVar's value in .env.local. Calls the provider's own
+// GET {baseUrl}/models with that profile's real credential — never proxied
+// through this server's stored state, never logged, never echoed back
+// besides the model ids themselves (never secret). Both apiFormats this
+// server supports happen to return the same `{ data: [{ id }] }` shape for
+// their model-listing endpoint (OpenAI's convention, and Anthropic's own
+// /v1/models — see Anthropic API docs), so one code path covers both.
+app.get("/api/backend-profiles/:id/models", async (req, res) => {
+  const profile = backendProfileStore.registry[req.params.id];
+  if (!profile) {
+    res.status(404).json({ error: `Backend profile "${req.params.id}" does not exist.` });
+    return;
+  }
+  const baseUrl = process.env[profile.baseUrlEnvVar]?.trim();
+  const authToken = process.env[profile.authTokenEnvVar]?.trim();
+  if (!baseUrl || !authToken) {
+    res.status(409).json({
+      error: `Profile "${profile.id}" is missing ${profile.baseUrlEnvVar} and/or ${profile.authTokenEnvVar} on this server.`,
+    });
+    return;
+  }
+
+  const headers: Record<string, string> =
+    profile.apiFormat === "anthropic"
+      ? { "x-api-key": authToken, "anthropic-version": "2023-06-01" }
+      : { Authorization: `Bearer ${authToken}` };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, { headers, signal: controller.signal });
+    if (!response.ok) {
+      res.status(502).json({ error: `Provider returned ${response.status} ${response.statusText} for GET /models.` });
+      return;
+    }
+    const body: unknown = await response.json();
+    const data = (body as { data?: unknown })?.data;
+    if (!Array.isArray(data)) {
+      res.status(502).json({ error: "Provider's /models response didn't have the expected { data: [...] } shape." });
+      return;
+    }
+    const models = data
+      .map((entry) => (entry as { id?: unknown })?.id)
+      .filter((id): id is string => typeof id === "string")
+      .sort();
+    res.json({ models });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: `Couldn't reach the provider's /models endpoint: ${message}` });
+  } finally {
+    clearTimeout(timeout);
   }
 });
 

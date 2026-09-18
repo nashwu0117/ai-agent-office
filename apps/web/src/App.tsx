@@ -48,8 +48,10 @@ function goalColor(goalId: string): string {
   return GOAL_COLORS[hash % GOAL_COLORS.length];
 }
 
-const SERVER_PORT = import.meta.env.VITE_SERVER_PORT ?? "43117";
-const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${SERVER_PORT}`;
+// Routed through the Vite dev proxy's "/ws" entry (see vite.config.ts) so the
+// page works over a single origin/port — required for it to also work behind
+// a reverse tunnel that only forwards one port to the browser.
+const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 export default function App() {
   const { t } = useLanguage();

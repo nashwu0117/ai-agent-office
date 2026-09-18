@@ -1,9 +1,33 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { BackendProfile, BackendProfileClientInfo, BackendProfileRegistry } from "@ai-office/core";
+import { upsertEnvVar } from "./env-file-store.js";
 
 const VALID_API_FORMATS = new Set<BackendProfile["apiFormat"]>(["anthropic", "openai-chat-completions"]);
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+// v0.15: baseUrlEnvVar/authTokenEnvVar/modelOverrideEnvVar are meant to hold
+// the *name* of an env var this server reads at runtime — never the secret
+// value itself. In practice, operators kept pasting the real URL/key/model
+// string directly into these fields anyway (it happened five times —
+// nvidia-real, bai-1, bai-2, and two new profiles mid-add — despite the
+// field being labeled "env var name"), each time silently persisting a
+// broken, exposed profile. Rejecting that input just left people stuck
+// re-reading the label; see resolveEnvVarField below for what this does
+// instead: treat anything that isn't already a valid identifier as the real
+// value, and go set it up correctly on their behalf.
+//
+// v0.15.1: that identifier check originally allowed lowercase (any
+// [A-Za-z_][A-Za-z0-9_]* string), so a real secret that happens to use only
+// letters/digits/underscores — e.g. an API key shaped like
+// "xpl_REDACTED0000000000000000000000000000000" — passed as "already a
+// valid name" and got stored as-is instead of auto-provisioned, silently
+// corrupting the profile (found live: platform.experientiallabs.ai's key
+// ended up sitting in authTokenEnvVar itself, so process.env[that] was
+// always undefined and every /models fetch 409'd). Every real env var name
+// in this codebase is SCREAMING_SNAKE_CASE; requiring uppercase here is
+// enough to correctly route any lowercase-containing secret through
+// resolveEnvVarField's auto-provisioning path instead.
+const ENV_VAR_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
 export class BackendProfileValidationError extends Error {}
 
@@ -50,7 +74,9 @@ export class BackendProfileStore {
 
   constructor(
     defaults: BackendProfileRegistry,
-    private readonly filePath: string
+    private readonly filePath: string,
+    /** v0.15: apps/server/.env.local — see resolveEnvVarField's auto-provisioning. */
+    private readonly envFilePath: string
   ) {
     const persisted = this.load();
     if (persisted) {
@@ -99,6 +125,15 @@ export class BackendProfileStore {
     return profile;
   }
 
+  /** v0.15: removes a profile that no agent is actively pinned to — see index.ts's DELETE route for the "still in use" guard. */
+  delete(id: string): void {
+    if (!this.registry[id]) {
+      throw new BackendProfileValidationError(`Backend profile "${id}" does not exist.`);
+    }
+    delete this.registry[id];
+    this.persist();
+  }
+
   update(id: string, patch: BackendProfileUpdate): BackendProfile {
     const existing = this.registry[id];
     if (!existing) {
@@ -123,12 +158,15 @@ export class BackendProfileStore {
     if (!VALID_API_FORMATS.has(input.apiFormat as BackendProfile["apiFormat"])) {
       throw new BackendProfileValidationError(`apiFormat must be one of: ${[...VALID_API_FORMATS].join(", ")}.`);
     }
-    const baseUrlEnvVar = input.baseUrlEnvVar.trim();
-    const authTokenEnvVar = input.authTokenEnvVar.trim();
-    if (!baseUrlEnvVar || !authTokenEnvVar) {
-      throw new BackendProfileValidationError("baseUrlEnvVar and authTokenEnvVar are both required (env var names, not values).");
+    const rawBaseUrl = input.baseUrlEnvVar.trim();
+    const rawAuthToken = input.authTokenEnvVar.trim();
+    if (!rawBaseUrl || !rawAuthToken) {
+      throw new BackendProfileValidationError("baseUrlEnvVar and authTokenEnvVar are both required.");
     }
-    const modelOverrideEnvVar = input.modelOverrideEnvVar?.trim();
+    const baseUrlEnvVar = this.resolveEnvVarField(id, "BASE_URL", rawBaseUrl);
+    const authTokenEnvVar = this.resolveEnvVarField(id, "AUTH_TOKEN", rawAuthToken);
+    const rawModelOverride = input.modelOverrideEnvVar?.trim();
+    const modelOverrideEnvVar = rawModelOverride ? this.resolveEnvVarField(id, "MODEL", rawModelOverride) : undefined;
     return {
       id,
       label,
@@ -137,6 +175,27 @@ export class BackendProfileStore {
       authTokenEnvVar,
       ...(modelOverrideEnvVar ? { modelOverrideEnvVar } : {}),
     };
+  }
+
+  /**
+   * v0.15: accepts either an env var name (used as-is, unchanged from the
+   * original design) or the actual URL/key/model string. For the latter, it
+   * derives a standard-shaped name from the profile id and this field's
+   * kind, writes the real value into apps/server/.env.local under that name
+   * (see env-file-store.ts — replacing any prior value there for the same
+   * name), sets it on this process's own env immediately so the profile is
+   * usable without a restart, and returns the *name* for the caller to
+   * store — backend-profiles.json never holds anything but names.
+   */
+  private resolveEnvVarField(id: string, kind: "BASE_URL" | "AUTH_TOKEN" | "MODEL", value: string): string {
+    if (ENV_VAR_NAME_PATTERN.test(value)) return value;
+    if (/[\r\n]/.test(value)) {
+      throw new BackendProfileValidationError(`This value can't contain line breaks.`);
+    }
+    const envVarName = `AI_OFFICE_BACKEND_${id.toUpperCase().replace(/-/g, "_")}_${kind}`;
+    upsertEnvVar(this.envFilePath, envVarName, value);
+    process.env[envVarName] = value;
+    return envVarName;
   }
 
   private load(): BackendProfileRegistry | undefined {
@@ -162,6 +221,7 @@ export class BackendProfileStore {
 function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
   const baseUrl = process.env[profile.baseUrlEnvVar];
   const authToken = process.env[profile.authTokenEnvVar];
+  const currentModel = profile.modelOverrideEnvVar ? process.env[profile.modelOverrideEnvVar]?.trim() : undefined;
   return {
     id: profile.id,
     label: profile.label,
@@ -169,6 +229,7 @@ function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
     baseUrlEnvVar: profile.baseUrlEnvVar,
     authTokenEnvVar: profile.authTokenEnvVar,
     ...(profile.modelOverrideEnvVar ? { modelOverrideEnvVar: profile.modelOverrideEnvVar } : {}),
+    ...(currentModel ? { currentModel } : {}),
     available: Boolean(baseUrl?.trim()) && Boolean(authToken?.trim()),
   };
 }

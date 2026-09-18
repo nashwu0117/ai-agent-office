@@ -42,9 +42,10 @@ export interface BackendProfile {
    * v0.9 mock never validated `model`, so v0.9's straight passthrough of
    * req.model — a Claude Code model id like "claude-3-5-sonnet-..." — went
    * unnoticed until a real backend rejected it as an unknown model/function).
-   * Ignored when apiFormat is "anthropic" (that path is byte-passthrough and
-   * has no separate model field to rewrite). Undefined means "no override",
-   * the original v0.9 behavior.
+   * v0.15: also consulted for "anthropic" apiFormat now (proxy-server.ts's
+   * passthroughToAnthropic rewrites the body's `model` field when this is
+   * set and has a value) — no longer openai-chat-completions-only. Undefined
+   * means "no override", the original v0.9 behavior.
    */
   modelOverrideEnvVar?: string;
 }
@@ -68,6 +69,14 @@ export interface BackendProfileClientInfo {
   authTokenEnvVar: string;
   /** v0.11: see BackendProfile.modelOverrideEnvVar. Undefined when this profile has none registered. */
   modelOverrideEnvVar?: string;
+  /**
+   * v0.15: modelOverrideEnvVar's current *value* — a model id (e.g.
+   * "meta/llama-3.1-70b-instruct"), never a secret, unlike baseUrlEnvVar/
+   * authTokenEnvVar which never send their values to the browser. Lets the
+   * management UI show which of the fetched model ids is already active.
+   * Undefined when modelOverrideEnvVar is unset or empty.
+   */
+  currentModel?: string;
   /** Whether both baseUrlEnvVar and authTokenEnvVar are currently set (non-empty) on this server's process — never proves the values are valid credentials, only present. */
   available: boolean;
 }

@@ -23,7 +23,9 @@ import { selectAvailablePort } from "@ai-office/core/node";
  *  - "anthropic": byte-level reverse proxy. Same wire behavior as v0.8's
  *    direct env-var routing, just with this process as a hop — headers,
  *    JSON body, and SSE streaming are all forwarded unmodified except the
- *    auth header, which is replaced with this profile's own credential.
+ *    auth header (replaced with this profile's own credential) and, if
+ *    modelOverrideEnvVar is set and has a value, the body's `model` field
+ *    (v0.15 — see passthroughToAnthropic).
  *  - "openai-chat-completions": request/response (and SSE stream) are
  *    translated both directions through packages/core/src/proxy/translate.ts.
  *    Lossy in documented ways — see docs/api-format-translation.md.
@@ -91,7 +93,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
   const rawBody = await readRawBody(req);
 
   if (profile.apiFormat === "anthropic") {
-    await passthroughToAnthropic(req, res, baseUrl, authToken, rest + url.search, rawBody);
+    await passthroughToAnthropic(req, res, baseUrl, authToken, rest + url.search, rawBody, profile.modelOverrideEnvVar);
     return;
   }
 
@@ -181,12 +183,33 @@ async function passthroughToAnthropic(
   baseUrl: string,
   authToken: string,
   pathAndQuery: string,
-  rawBody: Buffer
+  rawBody: Buffer,
+  modelOverrideEnvVar: string | undefined
 ): Promise<void> {
+  // v0.15: was a byte-for-byte pass-through with no way to redirect which
+  // model id an "anthropic" apiFormat profile's key actually requests —
+  // unlike the openai-chat-completions path below, which has always
+  // consulted modelOverrideEnvVar. Only parses/rewrites the body when an
+  // override is actually configured and has a value; with neither set, this
+  // still forwards `rawBody` completely unmodified, so a profile that never
+  // opts in keeps the exact byte-passthrough behavior documented above.
+  const modelOverride = modelOverrideEnvVar && process.env[modelOverrideEnvVar]?.trim();
+  let body: Buffer = rawBody;
+  if (modelOverride) {
+    try {
+      const parsed = JSON.parse(rawBody.toString("utf8")) as { model?: string };
+      parsed.model = modelOverride;
+      body = Buffer.from(JSON.stringify(parsed), "utf8");
+    } catch {
+      // Not JSON (or no `model` field to rewrite) — fall back to the
+      // original bytes rather than fail the request over an optional override.
+    }
+  }
+
   const upstream = await fetch(`${baseUrl.replace(/\/$/, "")}${pathAndQuery}`, {
     method: "POST",
     headers: buildUpstreamRequestHeaders(req, authToken),
-    body: new Uint8Array(rawBody),
+    body: new Uint8Array(body),
   });
   res.writeHead(upstream.status, upstreamResponseHeaders(upstream.headers));
   await pipeUpstreamBody(upstream, res);

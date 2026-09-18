@@ -11,8 +11,16 @@ export default defineConfig({
   server: {
     port: webPort,
     strictPort: true,
+    // v0.13 Cloudflare Tunnel: your-tunnel-host.example (see
+    // ~/.cloudflared/config.yml) forwards to this dev server by Host header,
+    // which Vite's dev server blocks by default unless allow-listed here.
+    allowedHosts: ["your-tunnel-host.example"],
     proxy: {
       "/api": `http://localhost:${serverPort}`,
+      "/ws": {
+        target: `ws://localhost:${serverPort}`,
+        ws: true,
+      },
     },
   },
 });

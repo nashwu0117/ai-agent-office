@@ -172,6 +172,13 @@ input[type="checkbox"] {
   mask-image: linear-gradient(90deg, transparent 46%, #000 100%);
 }
 
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+
 .app-header h1 {
   position: relative;
   display: inline-flex;
