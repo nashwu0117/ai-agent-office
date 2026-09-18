@@ -12,3 +12,5 @@ export * from "./master/brain.js";
 export * from "./master/dependency-graph.js";
 export * from "./master/goal-coordinator.js";
 export * from "./master/plan-parser.js";
+export * from "./collaboration/types.js";
+export * from "./collaboration/handoff-coordinator.js";

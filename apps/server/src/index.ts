@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   Orchestrator,
   GoalCoordinator,
+  HandoffCoordinator,
   KNOWN_CAPABILITIES,
   type Agent,
   type BackendProfileRegistry,
@@ -350,6 +351,10 @@ function broadcast(event: OfficeEvent): void {
 // assigned after `orchestrator` because the two reference each other; by the
 // time any event actually fires, both are constructed.
 let goalCoordinator: GoalCoordinator;
+// v0.22 Part C: same pattern — observes task_updated to detect a dependency
+// handoff between two different agents. See HandoffCoordinator's own doc
+// comment for the exact trigger.
+let handoffCoordinator: HandoffCoordinator;
 
 // One router shared by CLI adapters and MasterBrain for non-secret status.
 // MasterBrain resolves only the single `claude-code-cli-session` source; it
@@ -396,6 +401,7 @@ const orchestrator = new Orchestrator({
   broadcast: (event) => {
     broadcast(event);
     goalCoordinator.observe(event);
+    handoffCoordinator.observe(event);
   },
 });
 
@@ -421,6 +427,7 @@ const masterBrainStore = new MasterBrainStore(`${DATA_DIR}master-brain.json`);
 
 const master = masterBrains[masterBrainStore.get()];
 goalCoordinator = new GoalCoordinator({ orchestrator, master, broadcast });
+handoffCoordinator = new HandoffCoordinator({ orchestrator, broadcast });
 
 function makeAgent(id: string, runtime: string, eligibleCapabilities: string[], backendProfile?: string): Agent {
   const now = new Date().toISOString();
@@ -459,6 +466,8 @@ wss.on("connection", (socket) => {
       defaultBackendProfile: defaultBackendStore.get(),
       // v0.22 Part B: which backend currently drives the single Master planner.
       masterBrain: masterBrainStore.get(),
+      // v0.22 Part C: recent dependency handoffs — see HandoffCoordinator.
+      handoffs: handoffCoordinator.list(),
     })
   );
   socket.on("close", () => clients.delete(socket));
@@ -474,6 +483,14 @@ app.get("/api/agents", (_req, res) => {
 
 app.get("/api/tasks", (_req, res) => {
   res.json(orchestrator.listTasks());
+});
+
+// v0.22 Part C: recent dependency handoffs, same "in-memory, queryable,
+// not disk-persisted across restarts" shape as GET /api/tasks — see
+// HandoffCoordinator's own doc comment on why that parity was the goal
+// rather than a new persistence layer.
+app.get("/api/handoffs", (_req, res) => {
+  res.json(handoffCoordinator.list());
 });
 
 app.post("/api/tasks", dispatchLimiter, async (req, res) => {
