@@ -140,6 +140,8 @@ export interface Translations {
   colStatus: string;
   available: string;
   unavailable: string;
+  refreshCredentialsButton: string;
+  refreshingCredentialsButton: string;
 
   // v0.21: cc-switch-style single-provider editor, replacing the old
   // table-of-profiles-plus-add-form UI (BackendProfilesPanel.tsx).
@@ -211,6 +213,7 @@ export interface Translations {
   colAgent: string;
   colBackendProfile: string;
   backendProfileForAgentAriaLabel: (agentId: string) => string;
+  backendProfileNotApplicable: string;
 
   // v0.18: access-auth login gate — see AuthGate.tsx.
   loginHeading: string;
@@ -445,6 +448,8 @@ const en: Translations = {
   colStatus: "Status",
   available: "Available",
   unavailable: "Unavailable",
+  refreshCredentialsButton: "Refresh",
+  refreshingCredentialsButton: "Refreshing…",
 
   backendProfilesHeading: "Backend profiles",
   providerEditorIntro:
@@ -519,6 +524,7 @@ const en: Translations = {
   colAgent: "Agent",
   colBackendProfile: "Backend profile",
   backendProfileForAgentAriaLabel: (agentId) => `Backend profile for ${agentId}`,
+  backendProfileNotApplicable: "N/A — this runtime authenticates through its own CLI login, not a BackendProfile",
 
   loginHeading: "AI Office — sign in",
   loginDescription: "This is being accessed from outside localhost, so a password is required.",
@@ -670,6 +676,8 @@ const zhTW: Translations = {
   colStatus: "狀態",
   available: "可用",
   unavailable: "不可用",
+  refreshCredentialsButton: "重新整理",
+  refreshingCredentialsButton: "重新整理中…",
 
   backendProfilesHeading: "後端設定檔",
   providerEditorIntro:
@@ -742,6 +750,7 @@ const zhTW: Translations = {
   colAgent: "代理",
   colBackendProfile: "後端設定檔",
   backendProfileForAgentAriaLabel: (agentId) => `${agentId} 的後端設定檔`,
+  backendProfileNotApplicable: "不適用——這個執行環境是透過自己的 CLI 登入驗證,不是後端設定檔",
 
   loginHeading: "AI Office — 登入",
   loginDescription: "目前是從 localhost 以外的來源連進來,需要輸入密碼才能繼續。",
