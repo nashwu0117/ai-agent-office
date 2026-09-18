@@ -19,14 +19,14 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // v0.15.1: that identifier check originally allowed lowercase (any
 // [A-Za-z_][A-Za-z0-9_]* string), so a real secret that happens to use only
 // letters/digits/underscores — e.g. an API key shaped like
-// "xpl_REDACTED0000000000000000000000000000000" — passed as "already a
-// valid name" and got stored as-is instead of auto-provisioned, silently
-// corrupting the profile (found live: platform.experientiallabs.ai's key
-// ended up sitting in authTokenEnvVar itself, so process.env[that] was
-// always undefined and every /models fetch 409'd). Every real env var name
-// in this codebase is SCREAMING_SNAKE_CASE; requiring uppercase here is
-// enough to correctly route any lowercase-containing secret through
-// resolveEnvVarField's auto-provisioning path instead.
+// "xpl_<40 lowercase hex chars>" — passed as "already a valid name" and got
+// stored as-is instead of auto-provisioned, silently corrupting the profile
+// (found live: platform.experientiallabs.ai's key ended up sitting in
+// authTokenEnvVar itself, so process.env[that] was always undefined and
+// every /models fetch 409'd). Every real env var name in this codebase is
+// SCREAMING_SNAKE_CASE; requiring uppercase here is enough to correctly
+// route any lowercase-containing secret through resolveEnvVarField's
+// auto-provisioning path instead.
 const ENV_VAR_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
 export class BackendProfileValidationError extends Error {}
