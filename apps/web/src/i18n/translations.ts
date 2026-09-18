@@ -160,9 +160,6 @@ export interface Translations {
   authTokenEnvVarFieldLabel: string;
   baseUrlEnvVarPlaceholder: string;
   authTokenEnvVarPlaceholder: string;
-  modelOverrideEnvVarFieldLabel: string;
-  modelOverrideEnvVarPlaceholder: string;
-  legacyModelOverrideHeading: string;
 
   // Login-based providers (Claude Code official, Codex, Cline, OpenCode) —
   // no Base URL/API key fields, just login status + how-to-login text.
@@ -175,6 +172,9 @@ export interface Translations {
   roleModelPlaceholder: string;
   fallbackModelFieldLabel: string;
   fallbackModelHint: string;
+  fetchModelsButton: string;
+  fetchingModelsButton: string;
+  noModelsReturned: string;
 
   customHeadersHeading: string;
   customHeadersHint: string;
@@ -452,9 +452,6 @@ const en: Translations = {
   authTokenEnvVarFieldLabel: "API key",
   baseUrlEnvVarPlaceholder: "leave blank to keep current — or type an env var name / paste a real URL",
   authTokenEnvVarPlaceholder: "leave blank to keep current — or type an env var name / paste a real key",
-  modelOverrideEnvVarFieldLabel: "Legacy blanket model override env var (optional)",
-  modelOverrideEnvVarPlaceholder: "optional, e.g. AI_OFFICE_NVIDIA_MODEL",
-  legacyModelOverrideHeading: "Legacy override (pre-v0.21)",
 
   loginProviderNote:
     "This provider authenticates through its own CLI's login session, not a Base URL/API key pair — there's nothing to edit here beyond checking whether that login is in place.",
@@ -466,7 +463,10 @@ const en: Translations = {
   roleLabel: (role) => ({ sonnet: "Sonnet", opus: "Opus", fable: "Fable", haiku: "Haiku", subagent: "Subagent (best-effort catch-all)" })[role] ?? role,
   roleModelPlaceholder: "e.g. meta/llama-3.1-70b-instruct",
   fallbackModelFieldLabel: "Fallback model",
-  fallbackModelHint: "Used when a request's role has no mapping above. Leave blank to fall through to the legacy override below, then to no rewrite at all.",
+  fallbackModelHint: "Used when a request's role has no mapping above. Leave blank for no rewrite at all.",
+  fetchModelsButton: "Fetch models",
+  fetchingModelsButton: "Fetching…",
+  noModelsReturned: "Provider returned an empty model list.",
 
   customHeadersHeading: "Custom headers",
   customHeadersHint:
@@ -664,9 +664,6 @@ const zhTW: Translations = {
   authTokenEnvVarFieldLabel: "API 金鑰",
   baseUrlEnvVarPlaceholder: "留空 = 保持不變 — 或輸入環境變數名稱/直接貼上真實網址",
   authTokenEnvVarPlaceholder: "留空 = 保持不變 — 或輸入環境變數名稱/直接貼上真實金鑰",
-  modelOverrideEnvVarFieldLabel: "舊版整體模型覆寫環境變數(選填)",
-  modelOverrideEnvVarPlaceholder: "選填,例如 AI_OFFICE_NVIDIA_MODEL",
-  legacyModelOverrideHeading: "舊版覆寫機制(v0.21 前)",
 
   loginProviderNote: "這個供應商是透過自己 CLI 的登入工作階段驗證,不是 Base URL/API 金鑰組合——這裡沒有欄位可編輯,只能確認登入狀態。",
   loginCommandLabel: (command) => `在終端機執行 ${command} 以登入。`,
@@ -678,7 +675,10 @@ const zhTW: Translations = {
     ({ sonnet: "Sonnet", opus: "Opus", fable: "Fable", haiku: "Haiku", subagent: "Subagent(盡力而為的後備)" })[role] ?? role,
   roleModelPlaceholder: "例如 meta/llama-3.1-70b-instruct",
   fallbackModelFieldLabel: "Fallback 模型",
-  fallbackModelHint: "當某個角色在上方沒有對應時使用。留空則落到下方的舊版覆寫,再落到完全不改寫。",
+  fallbackModelHint: "當某個角色在上方沒有對應時使用。留空則完全不改寫。",
+  fetchModelsButton: "取得模型清單",
+  fetchingModelsButton: "取得中…",
+  noModelsReturned: "供應商回傳空的模型清單。",
 
   customHeadersHeading: "自訂 Headers",
   customHeadersHint: "上游除了上方 API 金鑰之外還需要的額外固定 headers(例如指定的 API 版本)。不能覆寫 x-api-key、authorization 或 host——這些一律來自 API 金鑰欄位。",

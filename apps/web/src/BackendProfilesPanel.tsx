@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AGENT_ROLES, type Agent, type AgentRole, type BackendProfileClientInfo, type CredentialSourceStatus } from "@ai-office/core";
-import { setAgentBackendProfile, setDefaultBackendProfile, updateBackendProfile } from "./ws/client.js";
+import { fetchBackendProfileModels, setAgentBackendProfile, setDefaultBackendProfile, updateBackendProfile } from "./ws/client.js";
 import { useLanguage } from "./i18n/language-context.js";
 
 // v0.10: Credential / Backend Profile management panel — the UI Part A of
@@ -83,7 +83,6 @@ interface ProfileDraft {
   apiFormat: string;
   baseUrlInput: string;
   authTokenInput: string;
-  modelOverrideInput: string;
   roleModelMap: Record<AgentRole, string>;
   fallbackModel: string;
   headers: Array<{ key: string; value: string }>;
@@ -98,12 +97,47 @@ function draftFromProfile(p: BackendProfileClientInfo): ProfileDraft {
     apiFormat: p.apiFormat,
     baseUrlInput: "",
     authTokenInput: "",
-    modelOverrideInput: p.modelOverrideEnvVar ?? "",
     roleModelMap: { ...EMPTY_ROLE_MAP, ...(p.roleModelMap ?? {}) },
     fallbackModel: p.fallbackModel ?? "",
     headers: Object.entries(p.customHeaders ?? {}).map(([key, value]) => ({ key, value })),
     customBodyText: p.customBodyOverride && Object.keys(p.customBodyOverride).length > 0 ? JSON.stringify(p.customBodyOverride, null, 2) : "",
   };
+}
+
+/**
+ * v0.21.1: a role/fallback model field renders as a plain text input until
+ * the operator fetches this profile's real model list (GET .../models,
+ * v0.15) — then it becomes a real dropdown built from that live list, per
+ * the operator's own request instead of always requiring free-text typing.
+ * The current value is always included as an option even if it isn't in
+ * the fetched list (a value set before fetching, or typed by hand), so
+ * switching to the dropdown never silently discards it.
+ */
+function ModelField({
+  value,
+  onChange,
+  placeholder,
+  models,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  models: string[] | null;
+}) {
+  if (!models) {
+    return <input placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />;
+  }
+  const options = value && !models.includes(value) ? [value, ...models] : models;
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">—</option>
+      {options.map((m) => (
+        <option key={m} value={m}>
+          {m}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 const RESERVED_HEADER_NAMES = new Set(["x-api-key", "authorization", "host"]);
@@ -156,6 +190,28 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // v0.21.1: real model ids this profile's own key can see, fetched on
+  // demand — feeds ModelField's dropdown for the role/fallback fields
+  // below. Reset whenever the selected profile changes so a stale list
+  // from a different provider never lingers.
+  const [modelsState, setModelsState] = useState<{ status: "loading" | "error" | "done"; models?: string[]; error?: string } | null>(
+    null
+  );
+  useEffect(() => {
+    setModelsState(null);
+  }, [selectedProfile?.id]);
+
+  async function handleFetchModels() {
+    if (!selectedProfile) return;
+    setModelsState({ status: "loading" });
+    try {
+      const models = await fetchBackendProfileModels(selectedProfile.id);
+      setModelsState({ status: "done", models });
+    } catch (err) {
+      setModelsState({ status: "error", error: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   function resetDraft() {
     if (selectedProfile) setDraft(draftFromProfile(selectedProfile));
@@ -210,7 +266,6 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
         apiFormat: draft.apiFormat,
         ...(draft.baseUrlInput.trim() ? { baseUrlEnvVar: draft.baseUrlInput.trim() } : {}),
         ...(draft.authTokenInput.trim() ? { authTokenEnvVar: draft.authTokenInput.trim() } : {}),
-        modelOverrideEnvVar: draft.modelOverrideInput.trim() || undefined,
         roleModelMap,
         fallbackModel: draft.fallbackModel.trim() || undefined,
         customHeaders,
@@ -445,39 +500,42 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                   <fieldset className="bp-fieldset">
                     <legend>{t.roleModelMapHeading}</legend>
                     <p className="bp-hint">{t.roleModelMapHint}</p>
+                    <div className="bp-fetch-models-row">
+                      <button type="button" disabled={!selectedProfile.available || modelsState?.status === "loading"} onClick={handleFetchModels}>
+                        {modelsState?.status === "loading" ? t.fetchingModelsButton : t.fetchModelsButton}
+                      </button>
+                      {modelsState?.status === "error" && (
+                        <span className="bp-form-error" role="alert">
+                          {modelsState.error}
+                        </span>
+                      )}
+                      {modelsState?.status === "done" && modelsState.models?.length === 0 && (
+                        <span className="bp-hint">{t.noModelsReturned}</span>
+                      )}
+                    </div>
                     <div className="bp-role-grid">
                       {AGENT_ROLES.map((role) => (
                         <label key={role}>
                           {t.roleLabel(role)}
-                          <input
-                            placeholder={t.roleModelPlaceholder}
+                          <ModelField
                             value={draft.roleModelMap[role]}
-                            onChange={(e) => setDraft({ ...draft, roleModelMap: { ...draft.roleModelMap, [role]: e.target.value } })}
+                            onChange={(v) => setDraft({ ...draft, roleModelMap: { ...draft.roleModelMap, [role]: v } })}
+                            placeholder={t.roleModelPlaceholder}
+                            models={modelsState?.status === "done" ? (modelsState.models ?? []) : null}
                           />
                         </label>
                       ))}
                     </div>
                     <label className="bp-field-wide">
                       {t.fallbackModelFieldLabel}
-                      <input
-                        placeholder={t.roleModelPlaceholder}
+                      <ModelField
                         value={draft.fallbackModel}
-                        onChange={(e) => setDraft({ ...draft, fallbackModel: e.target.value })}
+                        onChange={(v) => setDraft({ ...draft, fallbackModel: v })}
+                        placeholder={t.roleModelPlaceholder}
+                        models={modelsState?.status === "done" ? (modelsState.models ?? []) : null}
                       />
                     </label>
                     <p className="bp-hint">{t.fallbackModelHint}</p>
-                  </fieldset>
-
-                  <fieldset className="bp-fieldset">
-                    <legend>{t.legacyModelOverrideHeading}</legend>
-                    <label className="bp-field-wide">
-                      {t.modelOverrideEnvVarFieldLabel}
-                      <input
-                        placeholder={t.modelOverrideEnvVarPlaceholder}
-                        value={draft.modelOverrideInput}
-                        onChange={(e) => setDraft({ ...draft, modelOverrideInput: e.target.value })}
-                      />
-                    </label>
                   </fieldset>
 
                   <fieldset className="bp-fieldset">
@@ -661,7 +719,6 @@ function buildPreview(profile: BackendProfileClientInfo, draft: ProfileDraft): s
     apiFormat: draft.apiFormat,
     baseUrlEnvVar: `${draft.baseUrlInput.trim() ? "(new value)" : profile.baseUrlEnvVar} — ${profile.available ? "set" : "not set"}`,
     authTokenEnvVar: `${draft.authTokenInput.trim() ? "(new value)" : profile.authTokenEnvVar} — ${profile.available ? "set" : "not set"}`,
-    ...(draft.modelOverrideInput.trim() ? { legacyModelOverrideEnvVar: draft.modelOverrideInput.trim() } : {}),
     ...(Object.keys(roleModelMap).length > 0 ? { roleModelMap } : {}),
     ...(draft.fallbackModel.trim() ? { fallbackModel: draft.fallbackModel.trim() } : {}),
     ...(Object.keys(headers).length > 0 ? { customHeaders: headers } : {}),

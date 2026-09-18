@@ -19,6 +19,13 @@ import { startFormatTranslationProxy } from "../proxy-server.js";
  * service, not just the mock. `npm run verify-nvidia-real` from apps/server.
  * Requires AI_OFFICE_NVIDIA_BASE_URL / AI_OFFICE_NVIDIA_API_KEY /
  * AI_OFFICE_NVIDIA_MODEL already set (see apps/server/.env.local, git-ignored).
+ *
+ * v0.21: `fallbackModel` is a plain literal model string now, not an env-var
+ * *name* like the pre-v0.21 `modelOverrideEnvVar` this replaced (model ids
+ * were never secret, so there's no reason to indirect through an env var —
+ * see BackendProfile.fallbackModel's own doc comment) — this script still
+ * reads AI_OFFICE_NVIDIA_MODEL from the environment itself, just to build
+ * that literal value, not because the profile object holds an env var name.
  */
 const stubCredentialRouter: CredentialRouter = {
   resolve: () => undefined,
@@ -41,7 +48,7 @@ async function main(): Promise<void> {
       apiFormat: "openai-chat-completions",
       baseUrlEnvVar: "AI_OFFICE_NVIDIA_BASE_URL",
       authTokenEnvVar: "AI_OFFICE_NVIDIA_API_KEY",
-      modelOverrideEnvVar: "AI_OFFICE_NVIDIA_MODEL",
+      fallbackModel: model,
     },
   };
 

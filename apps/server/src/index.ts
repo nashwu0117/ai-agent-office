@@ -94,16 +94,17 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
   // usage/quota is tracked separately per agent). Same apiFormat as the
   // hand-added "nvidia-real" profile in backend-profiles.json — see
   // docs/runtime-research-v0.13.md for why NVIDIA NIM speaks
-  // openai-chat-completions, not Anthropic's own format, and needs
-  // modelOverrideEnvVar (v0.11) for the same reason "nvidia-real" does.
-  // See docs/backend-profiles-v0.13.md for exactly which env vars to set.
+  // openai-chat-completions, not Anthropic's own format. NVIDIA NIM needs
+  // its own model id rather than whatever Claude Code model string the CLI
+  // sends — set that from the Backend & Credentials panel's per-role model
+  // mapping / Fallback model fields (v0.21) once you have a key; see
+  // docs/backend-profiles-v0.13.md for background.
   "nvidia-1": {
     id: "nvidia-1",
     label: "NVIDIA API #1",
     baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL",
     authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
-    modelOverrideEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_MODEL",
   },
   "nvidia-2": {
     id: "nvidia-2",
@@ -111,7 +112,6 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
     baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL",
     authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
-    modelOverrideEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_MODEL",
   },
   "nvidia-3": {
     id: "nvidia-3",
@@ -119,17 +119,14 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
     baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL",
     authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
-    modelOverrideEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_MODEL",
   },
 
   // v0.13: three independent b.ai backends. b.ai's Messages endpoint
   // (docs.b.ai/llmservice/api) is the real Anthropic Messages protocol —
   // see docs/runtime-research-v0.13.md — so these are byte-passthrough
   // "anthropic" profiles, same wire behavior as the "nvidia" profile above.
-  // v0.15: modelOverrideEnvVar now works for this apiFormat too (rewrites
-  // the request body's `model` field in the proxy) — none hardcoded here
-  // since none are set by default; the management UI's "Fetch models" +
-  // click-to-set assigns one per profile on demand instead.
+  // Per-role model mapping / Fallback model (v0.21, set from the panel) work
+  // for this apiFormat too — none set by default.
   "bai-1": {
     id: "bai-1",
     label: "b.ai API #1",
@@ -522,20 +519,19 @@ app.get("/api/backend-profiles", (_req, res) => {
 });
 
 app.post("/api/backend-profiles", (req, res) => {
-  const { id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar } = req.body ?? {};
+  const { id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = req.body ?? {};
   if (
     typeof id !== "string" ||
     typeof label !== "string" ||
     typeof apiFormat !== "string" ||
     typeof baseUrlEnvVar !== "string" ||
-    typeof authTokenEnvVar !== "string" ||
-    (modelOverrideEnvVar !== undefined && typeof modelOverrideEnvVar !== "string")
+    typeof authTokenEnvVar !== "string"
   ) {
-    res.status(400).json({ error: "id, label, apiFormat, baseUrlEnvVar, and authTokenEnvVar (all strings) are required; modelOverrideEnvVar is an optional string" });
+    res.status(400).json({ error: "id, label, apiFormat, baseUrlEnvVar, and authTokenEnvVar (all strings) are required" });
     return;
   }
   try {
-    backendProfileStore.create({ id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar });
+    backendProfileStore.create({ id, label, apiFormat, baseUrlEnvVar, authTokenEnvVar });
     broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
     res.status(201).json(backendProfileStore.list().find((p) => p.id === id));
   } catch (err) {
@@ -554,13 +550,12 @@ app.put("/api/backend-profiles/:id", (req, res) => {
   // "key omitted from the body" (keep existing) from "key present" (replace,
   // even with an empty object) — see its own comment on that `in` check.
   const body = req.body ?? {};
-  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar, modelOverrideEnvVar } = body;
+  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = body;
   const patch: BackendProfileUpdate = {
     label,
     apiFormat,
     baseUrlEnvVar,
     authTokenEnvVar,
-    modelOverrideEnvVar,
     ...("roleModelMap" in body ? { roleModelMap: body.roleModelMap } : {}),
     ...("fallbackModel" in body ? { fallbackModel: body.fallbackModel } : {}),
     ...("customHeaders" in body ? { customHeaders: body.customHeaders } : {}),
@@ -606,8 +601,10 @@ app.delete("/api/backend-profiles/:id", (req, res) => {
 });
 
 // v0.15: lets the management UI show which model ids a profile's own key
-// actually has access to, instead of the operator guessing a string to paste
-// into modelOverrideEnvVar's value in .env.local. Calls the provider's own
+// actually has access to, instead of the operator guessing a string to type
+// into the role-model-mapping/Fallback model fields (v0.21: BackendProfilesPanel
+// turns these into a dropdown fed by this endpoint — see its handleFetchModels).
+// Calls the provider's own
 // GET {baseUrl}/models with that profile's real credential — never proxied
 // through this server's stored state, never logged, never echoed back
 // besides the model ids themselves (never secret). Both apiFormats this

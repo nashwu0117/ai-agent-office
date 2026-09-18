@@ -24,8 +24,9 @@ import { selectAvailablePort } from "@ai-office/core/node";
  *    direct env-var routing, just with this process as a hop — headers,
  *    JSON body, and SSE streaming are all forwarded unmodified except the
  *    auth header (replaced with this profile's own credential) and, if
- *    modelOverrideEnvVar is set and has a value, the body's `model` field
- *    (v0.15 — see passthroughToAnthropic).
+ *    roleModelMap/fallbackModel resolve to something, the body's `model`
+ *    field (v0.15 introduced this rewrite, v0.21 moved it onto
+ *    resolveRoleModel — see passthroughToAnthropic).
  *  - "openai-chat-completions": request/response (and SSE stream) are
  *    translated both directions through packages/core/src/proxy/translate.ts.
  *    Lossy in documented ways — see docs/api-format-translation.md.
@@ -147,9 +148,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
  *    matched none of the four families above — documented best-effort, not
  *    genuine subagent detection (again, see RoleModelMap's comment).
  * 3. profile.fallbackModel.
- * 4. The legacy modelOverrideEnvVar's current value (kept for profiles that
- *    only ever configured the pre-v0.21 blanket override).
- * 5. undefined — no rewrite, forward `requestedModel` unchanged.
+ * 4. undefined — no rewrite, forward `requestedModel` unchanged.
  */
 function resolveRoleModel(profile: BackendProfile, requestedModel: string | undefined): string | undefined {
   const lower = requestedModel?.toLowerCase() ?? "";
@@ -166,9 +165,7 @@ function resolveRoleModel(profile: BackendProfile, requestedModel: string | unde
     }
     if (roleMap.subagent) return roleMap.subagent;
   }
-  if (profile.fallbackModel) return profile.fallbackModel;
-  const legacy = profile.modelOverrideEnvVar && process.env[profile.modelOverrideEnvVar]?.trim();
-  return legacy || undefined;
+  return profile.fallbackModel || undefined;
 }
 
 /** v0.21: shallow-merges a profile's customBodyOverride into a parsed request body, after model resolution — see CustomBodyOverride's doc comment. */
@@ -256,14 +253,14 @@ async function passthroughToAnthropic(
   // v0.15: was a byte-for-byte pass-through with no way to redirect which
   // model id an "anthropic" apiFormat profile's key actually requests —
   // unlike the openai-chat-completions path below, which has always
-  // consulted modelOverrideEnvVar. v0.21: now goes through resolveRoleModel
-  // (role mapping > fallbackModel > legacy modelOverrideEnvVar) plus
-  // customBodyOverride. Only parses/rewrites the body when there's actually
-  // something to change; with none of those configured, this still forwards
-  // `rawBody` completely unmodified, so a profile that never opts in keeps
-  // the exact byte-passthrough behavior documented above.
+  // rewritten `model`. v0.21: goes through resolveRoleModel (role mapping >
+  // fallbackModel) plus customBodyOverride. Only parses/rewrites the body
+  // when there's actually something to change; with none of those
+  // configured, this still forwards `rawBody` completely unmodified, so a
+  // profile that never opts in keeps the exact byte-passthrough behavior
+  // documented above.
   let body: Buffer = rawBody;
-  if (profile.roleModelMap || profile.fallbackModel || profile.modelOverrideEnvVar || profile.customBodyOverride) {
+  if (profile.roleModelMap || profile.fallbackModel || profile.customBodyOverride) {
     try {
       const parsed = JSON.parse(rawBody.toString("utf8")) as { model?: string } & Record<string, unknown>;
       const resolvedModel = resolveRoleModel(profile, parsed.model);
@@ -305,9 +302,8 @@ async function proxyOpenAITranslated(
   // (used below to build the translated response) is left untouched, so the
   // CLI still sees the model id it asked for, matching translate.ts's
   // documented echo-back behavior. v0.21: resolution now goes through
-  // resolveRoleModel (role mapping > fallbackModel > legacy
-  // modelOverrideEnvVar) instead of modelOverrideEnvVar alone, and
-  // customBodyOverride is shallow-merged in afterward.
+  // resolveRoleModel (role mapping > fallbackModel), and customBodyOverride
+  // is shallow-merged in afterward.
   const resolvedModel = resolveRoleModel(profile, anthropicReq.model);
   if (resolvedModel) openaiReq.model = resolvedModel;
   const openaiReqWithOverride = applyCustomBody(openaiReq as unknown as Record<string, unknown>, profile.customBodyOverride);

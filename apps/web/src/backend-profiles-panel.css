@@ -335,7 +335,11 @@
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 1rem;
-  align-items: start;
+  /* v0.21.1: stretch (not start) so the left provider list's box always
+     matches the right detail panel's height instead of stopping short of
+     it — the list itself still scrolls internally (min-height below) if
+     it somehow has more items than that shared height fits. */
+  align-items: stretch;
 }
 
 @media (max-width: 800px) {
@@ -352,7 +356,8 @@
   border: 1px solid #2b3143;
   border-radius: 6px;
   padding: 0.4rem;
-  max-height: 520px;
+  min-height: 320px;
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -436,6 +441,7 @@
 .bp-field-grid input,
 .bp-field-grid select,
 .bp-role-grid input,
+.bp-role-grid select,
 .bp-fieldset input,
 .bp-json-textarea {
   background: #262b3a;
@@ -477,6 +483,19 @@
   gap: 0.6rem;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   margin-bottom: 0.6rem;
+}
+
+.bp-fetch-models-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.bp-fetch-models-row button {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.65rem;
 }
 
 .bp-header-row {

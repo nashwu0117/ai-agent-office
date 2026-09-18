@@ -17,10 +17,10 @@ import { upsertEnvVar } from "./env-file-store.js";
 // left for the operator to pick manually rather than guessed by this code.
 const VALID_API_FORMATS = new Set<BackendProfile["apiFormat"]>(["anthropic", "openai-chat-completions", "unset"]);
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
-// v0.15: baseUrlEnvVar/authTokenEnvVar/modelOverrideEnvVar are meant to hold
-// the *name* of an env var this server reads at runtime — never the secret
-// value itself. In practice, operators kept pasting the real URL/key/model
-// string directly into these fields anyway (it happened five times —
+// v0.15: baseUrlEnvVar/authTokenEnvVar are meant to hold the *name* of an
+// env var this server reads at runtime — never the secret value itself. In
+// practice, operators kept pasting the real URL/key string directly into
+// these fields anyway (it happened five times —
 // nvidia-real, bai-1, bai-2, and two new profiles mid-add — despite the
 // field being labeled "env var name"), each time silently persisting a
 // broken, exposed profile. Rejecting that input just left people stuck
@@ -49,7 +49,6 @@ export interface BackendProfileInput {
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
-  modelOverrideEnvVar?: string;
   roleModelMap?: RoleModelMap;
   fallbackModel?: string;
   customHeaders?: CustomHeaders;
@@ -61,7 +60,6 @@ export interface BackendProfileUpdate {
   apiFormat?: string;
   baseUrlEnvVar?: string;
   authTokenEnvVar?: string;
-  modelOverrideEnvVar?: string;
   roleModelMap?: RoleModelMap;
   fallbackModel?: string;
   customHeaders?: CustomHeaders;
@@ -165,7 +163,6 @@ export class BackendProfileStore {
       apiFormat: patch.apiFormat ?? existing.apiFormat,
       baseUrlEnvVar: patch.baseUrlEnvVar ?? existing.baseUrlEnvVar,
       authTokenEnvVar: patch.authTokenEnvVar ?? existing.authTokenEnvVar,
-      modelOverrideEnvVar: patch.modelOverrideEnvVar ?? existing.modelOverrideEnvVar,
       // v0.21: these four are always taken from the patch when the caller
       // includes the key at all (even an explicit {} to clear one) —
       // undefined-means-"keep existing" would make it impossible to ever
@@ -195,8 +192,6 @@ export class BackendProfileStore {
     }
     const baseUrlEnvVar = this.resolveEnvVarField(id, "BASE_URL", rawBaseUrl);
     const authTokenEnvVar = this.resolveEnvVarField(id, "AUTH_TOKEN", rawAuthToken);
-    const rawModelOverride = input.modelOverrideEnvVar?.trim();
-    const modelOverrideEnvVar = rawModelOverride ? this.resolveEnvVarField(id, "MODEL", rawModelOverride) : undefined;
     const roleModelMap = this.validateRoleModelMap(input.roleModelMap);
     const fallbackModel = input.fallbackModel?.trim() || undefined;
     const customHeaders = this.validateCustomHeaders(input.customHeaders);
@@ -207,7 +202,6 @@ export class BackendProfileStore {
       apiFormat: input.apiFormat as BackendProfile["apiFormat"],
       baseUrlEnvVar,
       authTokenEnvVar,
-      ...(modelOverrideEnvVar ? { modelOverrideEnvVar } : {}),
       ...(roleModelMap ? { roleModelMap } : {}),
       ...(fallbackModel ? { fallbackModel } : {}),
       ...(customHeaders ? { customHeaders } : {}),
@@ -267,7 +261,7 @@ export class BackendProfileStore {
    * usable without a restart, and returns the *name* for the caller to
    * store — backend-profiles.json never holds anything but names.
    */
-  private resolveEnvVarField(id: string, kind: "BASE_URL" | "AUTH_TOKEN" | "MODEL", value: string): string {
+  private resolveEnvVarField(id: string, kind: "BASE_URL" | "AUTH_TOKEN", value: string): string {
     if (ENV_VAR_NAME_PATTERN.test(value)) return value;
     if (/[\r\n]/.test(value)) {
       throw new BackendProfileValidationError(`This value can't contain line breaks.`);
@@ -301,15 +295,12 @@ export class BackendProfileStore {
 function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
   const baseUrl = process.env[profile.baseUrlEnvVar];
   const authToken = process.env[profile.authTokenEnvVar];
-  const currentModel = profile.modelOverrideEnvVar ? process.env[profile.modelOverrideEnvVar]?.trim() : undefined;
   return {
     id: profile.id,
     label: profile.label,
     apiFormat: profile.apiFormat,
     baseUrlEnvVar: profile.baseUrlEnvVar,
     authTokenEnvVar: profile.authTokenEnvVar,
-    ...(profile.modelOverrideEnvVar ? { modelOverrideEnvVar: profile.modelOverrideEnvVar } : {}),
-    ...(currentModel ? { currentModel } : {}),
     ...(profile.roleModelMap ? { roleModelMap: profile.roleModelMap } : {}),
     ...(profile.fallbackModel ? { fallbackModel: profile.fallbackModel } : {}),
     ...(profile.customHeaders ? { customHeaders: profile.customHeaders } : {}),

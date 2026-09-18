@@ -35,12 +35,13 @@ export const AGENT_ROLES: AgentRole[] = ["sonnet", "opus", "fable", "haiku", "su
  * v0.21: per-role upstream model id overrides for a BackendProfile — e.g.
  * "when this profile's agent's CLI asks for Sonnet, actually send
  * 'meta/llama-3.1-70b-instruct' upstream instead". Stored as plain strings,
- * not env-var *names* like baseUrlEnvVar/authTokenEnvVar/modelOverrideEnvVar
- * above — a model id is never a secret (see modelOverrideEnvVar's own doc
- * comment on why *that* field went through env-var indirection: it's about
- * letting an operator point at a value they'd already set up as an env var,
- * not about hiding it), so there is no reason to make this any harder to
- * read or edit than the plain string it is.
+ * not env-var *names* like baseUrlEnvVar/authTokenEnvVar above — a model id
+ * is never a secret, so there is no reason to make this any harder to read
+ * or edit than the plain string it is. (A pre-v0.21 single blanket
+ * `modelOverrideEnvVar` field existed here and went through that env-var
+ * indirection instead; removed at the operator's request once this
+ * per-role mapping could fully replace it — see git history if you need
+ * the old design's reasoning.)
  *
  * Detection at the proxy (apps/server/src/proxy-server.ts's resolveRoleModel):
  * sonnet/opus/haiku/fable are matched by a case-insensitive substring test
@@ -104,33 +105,14 @@ export interface BackendProfile {
    * handleRequest.
    */
   apiFormat: "anthropic" | "openai-chat-completions" | "unset";
-  /**
-   * v0.11: env var this server reads a fixed model slug from, substituted
-   * for the Anthropic model string the `claude` CLI sends before forwarding
-   * an "openai-chat-completions" request upstream. Discovered necessary
-   * against a real NVIDIA NIM backend (docs/api-format-translation.md's
-   * v0.9 mock never validated `model`, so v0.9's straight passthrough of
-   * req.model — a Claude Code model id like "claude-3-5-sonnet-..." — went
-   * unnoticed until a real backend rejected it as an unknown model/function).
-   * v0.15: also consulted for "anthropic" apiFormat now (proxy-server.ts's
-   * passthroughToAnthropic rewrites the body's `model` field when this is
-   * set and has a value) — no longer openai-chat-completions-only. Undefined
-   * means "no override", the original v0.9 behavior.
-   *
-   * v0.21: kept as a legacy blanket override, now consulted *after*
-   * roleModelMap/fallbackModel below by resolveRoleModel — still useful for
-   * a profile that just wants "always send this one model id" without
-   * bothering with per-role mapping at all.
-   */
-  modelOverrideEnvVar?: string;
   /** v0.21: see RoleModelMap. Undefined/empty means no per-role mapping is configured. */
   roleModelMap?: RoleModelMap;
   /**
    * v0.21: the model id to send when a request's role can't be resolved
    * from roleModelMap (no substring match, and no `subagent` entry to catch
-   * it) — the "退而求其次要打的模型" the v0.21 build prompt asks for. Consulted
-   * before the legacy modelOverrideEnvVar so a profile that sets both gets
-   * the more specific/newer field's behavior.
+   * it) — the "退而求其次要打的模型" the v0.21 build prompt asks for. Undefined
+   * means no rewrite at all: the CLI's own requested model id is forwarded
+   * unchanged.
    */
   fallbackModel?: string;
   /** v0.21: see CustomHeaders. */
@@ -156,16 +138,6 @@ export interface BackendProfileClientInfo {
   apiFormat: BackendProfile["apiFormat"];
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
-  /** v0.11: see BackendProfile.modelOverrideEnvVar. Undefined when this profile has none registered. */
-  modelOverrideEnvVar?: string;
-  /**
-   * v0.15: modelOverrideEnvVar's current *value* — a model id (e.g.
-   * "meta/llama-3.1-70b-instruct"), never a secret, unlike baseUrlEnvVar/
-   * authTokenEnvVar which never send their values to the browser. Lets the
-   * management UI show which of the fetched model ids is already active.
-   * Undefined when modelOverrideEnvVar is unset or empty.
-   */
-  currentModel?: string;
   /** v0.21: see RoleModelMap. Sent as-is — never a secret. */
   roleModelMap?: RoleModelMap;
   /** v0.21: see BackendProfile.fallbackModel. */

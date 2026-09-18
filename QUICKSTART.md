@@ -157,20 +157,20 @@ backends and need credentials. Set these in `apps/server/.env.local`
 ```bash
 # apps/server/.env.local — fill in only what you're setting up
 
-# agent-06 / NVIDIA NIM #1 — https://build.nvidia.com (create an API key)
+# agent-06 / NVIDIA NIM #1 — https://build.nvidia.com (create an API key).
+# NVIDIA NIM needs its own model id, not whatever Claude Code model string
+# the CLI sends — set that from the Backend & Credentials panel's per-role
+# model mapping / Fallback model fields (v0.21), not an env var here.
 AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN=
-AI_OFFICE_BACKEND_NVIDIA_1_MODEL=          # e.g. meta/llama-3.1-70b-instruct
 
 # agent-07 / NVIDIA NIM #2 — same source as above, a second key
 AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN=
-AI_OFFICE_BACKEND_NVIDIA_2_MODEL=
 
 # agent-08 / NVIDIA NIM #3 — same source, a third key
 AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN=
-AI_OFFICE_BACKEND_NVIDIA_3_MODEL=
 
 # agent-09 / b.ai #1 — https://b.ai (API key from your b.ai account)
 AI_OFFICE_BACKEND_BAI_1_BASE_URL=https://api.b.ai

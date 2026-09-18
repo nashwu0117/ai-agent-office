@@ -123,7 +123,6 @@ export interface BackendProfileInput {
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
-  modelOverrideEnvVar?: string;
   /** v0.21: see @ai-office/core's RoleModelMap. */
   roleModelMap?: RoleModelMap;
   fallbackModel?: string;
