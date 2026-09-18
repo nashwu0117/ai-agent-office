@@ -27,6 +27,19 @@ export interface Translations {
   credentialsAriaLabel: (available: number, total: number, detail: string) => string;
   credentialDetailLine: (provider: string, id: string, available: boolean) => string;
 
+  recentWorkspacePathsLabel: string;
+  recentWorkspacePathsEmptyHint: string;
+  browseFolderLabel: string;
+  folderBrowserTitle: string;
+  folderBrowserUp: string;
+  folderBrowserSelect: string;
+  folderBrowserCancel: string;
+  folderBrowserLoading: string;
+  folderBrowserEmpty: string;
+  folderBrowserCreate: string;
+  folderBrowserCreatePlaceholder: string;
+  folderBrowserCreatePrompt: string;
+
   goalFormHeading: string;
   goalDescriptionLabel: string;
   goalDescriptionPlaceholder: string;
@@ -77,6 +90,7 @@ export interface Translations {
   queueBlockedDetail: (deps: string[]) => string;
   queueBlockedFailedLabel: string;
   queueBlockedFailedDetail: (deps: string[]) => string;
+  queueDependencyDetailsUnavailable: string;
 
   announceSnapshot: (agentCount: number, taskCount: number) => string;
   announceCredentialStatus: (available: number, total: number) => string;
@@ -134,6 +148,7 @@ export interface Translations {
 
   credentialSourcesHeading: string;
   credentialSourcesHint: string;
+  credentialSourceOptionalHint: string;
   noCredentialSources: string;
   colProvider: string;
   colSourceId: string;
@@ -261,6 +276,17 @@ export interface Translations {
   masterCharacterLabel: string;
   masterIdleBubble: string;
   masterPlanningBubble: string;
+  masterDetailStatus: string;
+  masterDetailBackend: string;
+  masterDetailModel: string;
+  masterDetailCurrentGoals: string;
+  masterDetailNoGoals: string;
+  closeMasterPanel: string;
+  masterDetailTasks: string;
+  masterDetailNoTasks: string;
+  detailCurrentWork: string;
+  detailTaskStatus: string;
+  detailTaskSource: string;
 
   // v0.18: access-auth login gate — see AuthGate.tsx.
   loginHeading: string;
@@ -360,6 +386,19 @@ const en: Translations = {
   credentialsAriaLabel: (available, total, detail) => `Credentials: ${available} of ${total} available. ${detail}`,
   credentialDetailLine: (provider, id, available) => `${provider}/${id}: ${available ? "available" : "unavailable"}`,
 
+  recentWorkspacePathsLabel: "Recent folder paths",
+  recentWorkspacePathsEmptyHint: "No recent paths yet — they'll show up here after your first successful submit.",
+  browseFolderLabel: "Browse folders on this machine",
+  folderBrowserTitle: "Choose a folder",
+  folderBrowserUp: "Up one level",
+  folderBrowserSelect: "Select this folder",
+  folderBrowserCancel: "Cancel",
+  folderBrowserLoading: "Loading…",
+  folderBrowserEmpty: "No subfolders here.",
+  folderBrowserCreate: "Create folder",
+  folderBrowserCreatePlaceholder: "New folder name",
+  folderBrowserCreatePrompt: "Enter a folder name first.",
+
   goalFormHeading: "High-level goal (Master plans it for you)",
   goalDescriptionLabel: "High-level goal",
   goalDescriptionPlaceholder:
@@ -420,6 +459,7 @@ const en: Translations = {
   queueBlockedDetail: (deps) => `— waiting on: ${deps.length > 0 ? deps.join(", ") : "a prior task"}`,
   queueBlockedFailedLabel: "✕ Blocked — dependency failed",
   queueBlockedFailedDetail: (deps) => `: ${deps.length > 0 ? deps.join(", ") : "a prior task"}`,
+  queueDependencyDetailsUnavailable: "Failure details are not available in the current snapshot.",
 
   announceSnapshot: (agentCount, taskCount) =>
     `Office updated. ${agentCount} agent${agentCount === 1 ? "" : "s"} and ${taskCount} task${taskCount === 1 ? "" : "s"} loaded.`,
@@ -489,6 +529,7 @@ const en: Translations = {
   credentialSourcesHeading: "Credential sources",
   credentialSourcesHint:
     "Runtime-agent credential sources only. Values themselves are never shown here — only whether a source looks usable. Master Brain is subscription-only as shown above and never reads these API-key sources.",
+  credentialSourceOptionalHint: "Optional — another source for this provider is already available, so this one can be ignored.",
   noCredentialSources: "No credential sources detected.",
   colProvider: "Provider",
   colSourceId: "Source id",
@@ -620,6 +661,17 @@ const en: Translations = {
   masterCharacterLabel: "MASTER",
   masterIdleBubble: "Standing by",
   masterPlanningBubble: "Planning…",
+  masterDetailStatus: "Status",
+  masterDetailBackend: "Backend",
+  masterDetailModel: "Model",
+  masterDetailCurrentGoals: "Current goals",
+  masterDetailNoGoals: "No goals have been submitted yet.",
+  closeMasterPanel: "Close Master details",
+  masterDetailTasks: "Tasks created by Master",
+  masterDetailNoTasks: "Master has not created any tasks yet.",
+  detailCurrentWork: "Current work",
+  detailTaskStatus: "Task status",
+  detailTaskSource: "Task source",
 
   loginHeading: "AI Office — sign in",
   loginDescription: "This is being accessed from outside localhost, so a password is required.",
@@ -644,6 +696,19 @@ const zhTW: Translations = {
   credentialsPill: (available, total) => `憑證:${available}/${total} 可用`,
   credentialsAriaLabel: (available, total, detail) => `憑證:${total} 個來源中有 ${available} 個可用。${detail}`,
   credentialDetailLine: (provider, id, available) => `${provider}/${id}:${available ? "可用" : "不可用"}`,
+
+  recentWorkspacePathsLabel: "最近使用的資料夾路徑",
+  recentWorkspacePathsEmptyHint: "目前還沒有最近路徑,成功送出一次後就會出現在這裡。",
+  browseFolderLabel: "瀏覽本機資料夾",
+  folderBrowserTitle: "選擇資料夾",
+  folderBrowserUp: "上一層",
+  folderBrowserSelect: "選擇此資料夾",
+  folderBrowserCancel: "取消",
+  folderBrowserLoading: "載入中…",
+  folderBrowserEmpty: "這裡沒有子資料夾。",
+  folderBrowserCreate: "建立資料夾",
+  folderBrowserCreatePlaceholder: "新資料夾名稱",
+  folderBrowserCreatePrompt: "請先輸入資料夾名稱。",
 
   goalFormHeading: "高階目標(由 Master 為你規劃)",
   goalDescriptionLabel: "高階目標",
@@ -703,6 +768,7 @@ const zhTW: Translations = {
   queueBlockedDetail: (deps) => `— 等待:${deps.length > 0 ? deps.join("、") : "前置任務"}`,
   queueBlockedFailedLabel: "✕ 已阻擋 — 相依任務失敗",
   queueBlockedFailedDetail: (deps) => `:${deps.length > 0 ? deps.join("、") : "前置任務"}`,
+  queueDependencyDetailsUnavailable: "目前快照沒有這些失敗原因的詳細資料。",
 
   announceSnapshot: (agentCount, taskCount) => `辦公室已更新。已載入 ${agentCount} 個代理與 ${taskCount} 個任務。`,
   announceCredentialStatus: (available, total) => `憑證狀態已更新。${total} 個來源中有 ${available} 個可用。`,
@@ -765,6 +831,7 @@ const zhTW: Translations = {
   credentialSourcesHeading: "憑證來源",
   credentialSourcesHint:
     "僅列出執行期代理使用的憑證來源。這裡從不顯示實際值,只顯示來源是否可用。如上所示,Master 大腦僅使用訂閱登入,不會讀取這些 API 金鑰來源。",
+  credentialSourceOptionalHint: "非必要——此提供者已有其他可用來源,這一筆可以忽略。",
   noCredentialSources: "未偵測到任何憑證來源。",
   colProvider: "提供者",
   colSourceId: "來源 ID",
@@ -891,6 +958,17 @@ const zhTW: Translations = {
   masterCharacterLabel: "MASTER",
   masterIdleBubble: "待命中",
   masterPlanningBubble: "規劃中…",
+  masterDetailStatus: "狀態",
+  masterDetailBackend: "後端",
+  masterDetailModel: "模型",
+  masterDetailCurrentGoals: "目前目標",
+  masterDetailNoGoals: "目前還沒有提交任何目標。",
+  closeMasterPanel: "關閉 Master 詳細資料",
+  masterDetailTasks: "Master 建立的任務",
+  masterDetailNoTasks: "Master 目前還沒有建立任務。",
+  detailCurrentWork: "目前工作",
+  detailTaskStatus: "任務狀態",
+  detailTaskSource: "任務來源",
 
   loginHeading: "AI Office — 登入",
   loginDescription: "目前是從 localhost 以外的來源連進來,需要輸入密碼才能繼續。",

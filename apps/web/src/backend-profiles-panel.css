@@ -91,6 +91,11 @@
   margin: 0 0 0.75rem;
 }
 
+.bp-credential-optional-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+}
+
 /* v0.22 Part B: the Master Brain backend selector, replacing the old
    static single-mode display above it. */
 .bp-master-selector {

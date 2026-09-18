@@ -662,17 +662,30 @@ export function BackendProfilesPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {credentialStatuses.map((s) => (
-                    <tr key={s.id}>
-                      <td>{s.provider}</td>
-                      <td>{s.id}</td>
-                      <td>
-                        <span className={`bp-status-pill ${s.available ? "bp-status-ok" : "bp-status-bad"}`}>
-                          {s.available ? t.available : t.unavailable}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {credentialStatuses.map((s) => {
+                    // A provider can have more than one real credential source
+                    // (e.g. Cline: CLINE_API_KEY or a `cline auth` session —
+                    // see LOGIN_PROVIDERS above and factory.ts). An unavailable
+                    // row is only ever a real problem if no sibling row for the
+                    // same provider is available; otherwise it's just an unused
+                    // alternative and showing a bare red "Unavailable" without
+                    // that context previously left no way to tell the two apart.
+                    const hasAvailableSibling =
+                      !s.available &&
+                      credentialStatuses.some((other) => other.provider === s.provider && other.id !== s.id && other.available);
+                    return (
+                      <tr key={s.id}>
+                        <td>{s.provider}</td>
+                        <td>{s.id}</td>
+                        <td>
+                          <span className={`bp-status-pill ${s.available ? "bp-status-ok" : "bp-status-bad"}`}>
+                            {s.available ? t.available : t.unavailable}
+                          </span>
+                          {hasAvailableSibling && <div className="bp-hint bp-credential-optional-hint">{t.credentialSourceOptionalHint}</div>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
