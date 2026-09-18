@@ -34,7 +34,60 @@ npm run dev:web
 Override the ports with `AI_OFFICE_SERVER_PORT` / `AI_OFFICE_WEB_PORT` if
 `43117`/`43118` are unavailable.
 
-## 2. What already works, no key required
+## 2. Access control (if you expose this beyond localhost)
+
+As of v0.18 — added because this project only ever assumed a single
+operator on localhost through v0.16, and that stopped being true the moment
+it got put behind a Cloudflare Tunnel for outside access.
+
+- **Plain `http://localhost:43118` use is unchanged** — no password, same
+  as always. The gate only engages when a request's `Host` header isn't
+  `localhost`/`127.0.0.1`/`::1` (e.g. arriving through a tunnel or reverse
+  proxy).
+- **Turn it on:**
+  ```bash
+  # apps/server/.env.local
+  AI_OFFICE_ACCESS_PASSWORD=choose-a-real-password-here
+  ```
+  Restart the server. Anyone reaching the app through a non-localhost
+  hostname now sees a login screen first; every `/api` route and the
+  WebSocket feed refuse to do anything without it. A successful login sets
+  an `httpOnly` session cookie good for 30 days; the header's **Log out**
+  button (shown only when the gate is active) clears it early.
+- **If you don't set `AI_OFFICE_ACCESS_PASSWORD`: there is no default
+  password.** Every non-localhost request is refused outright (`503`), not
+  silently allowed through. The server says so loudly at startup:
+  ```
+  [ai-office] WARNING: AI_OFFICE_ACCESS_PASSWORD is not set — every
+  non-localhost request (e.g. through the Cloudflare Tunnel) will be
+  refused with 503 until you set it in apps/server/.env.local and restart.
+  There is no default password.
+  ```
+- `AI_OFFICE_REQUIRE_AUTH=true` forces the login gate even on localhost
+  (useful for testing it, or if you'd rather always require a session
+  regardless of `Host`).
+- `AI_OFFICE_ALLOWED_ORIGINS` — comma-separated extra CORS origins, on top
+  of the built-ins (`http://localhost:43118`/`http://127.0.0.1:43118` and
+  this project's own Cloudflare Tunnel hostname,
+  `https://your-tunnel-host.example`, from `~/.cloudflared/config.yml`).
+  Only needed if you add another hostname later.
+- **Rate limits** on top of the login gate: login attempts (10/15 min),
+  task/goal dispatch (30/5 min), backend-profile model listing (30/5 min),
+  and a general 300/min ceiling on everything else under `/api`. These are
+  effectively *per-server*, not per-remote-client — cloudflared and the
+  Vite dev proxy both run on this same machine, so every request reaches
+  Express from `127.0.0.1` regardless of the real external caller (see
+  `apps/server/src/rate-limits.ts`'s doc comment).
+- **What this deliberately doesn't do:** no accounts, no roles, no
+  password rotation/expiry, and no defense once someone already has the
+  password — one shared secret for one operator, matching this project's
+  explicit scope. It also only protects `apps/server`'s own routes; it does
+  not inspect or change your actual Cloudflare Tunnel/Access setup — if you
+  want Cloudflare-side authentication too (Cloudflare Access, requiring
+  login before cloudflared even forwards the request), set that up
+  separately in the Cloudflare Zero Trust dashboard.
+
+## 3. What already works, no key required
 
 These all use a CLI already logged into a subscription on this machine —
 nothing to fill in:
@@ -58,7 +111,7 @@ agent-06 (`mock-openai`) is a dev/test-only profile — it needs
 `npm run mock-openai` (in `apps/server`) running locally and isn't meant for
 real tasks.
 
-## 3. What needs a key first
+## 4. What needs a key first
 
 Nine agents are wired to real third-party backends but need credentials.
 Set these in `apps/server/.env.local` (git-ignored — never commit real
@@ -116,7 +169,7 @@ the UI — dispatching a task to it just fails fast and clearly (a
 quota. Full background on why each backend speaks the API shape it does:
 [`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md).
 
-## 4. Dispatching work from the web UI
+## 5. Dispatching work from the web UI
 
 Two ways to hand off work, both feeding the same dispatch/queue/completion
 pipeline:
@@ -138,7 +191,7 @@ limitations below) to open its detail panel and watch raw CLI output
 stream in live. When a task finishes, a completion (or failure) card
 appears at the bottom of the main column.
 
-## 5. Setting the default backend
+## 6. Setting the default backend
 
 The **Backend & Credentials** button in the header opens a panel with:
 
@@ -157,7 +210,7 @@ The **Backend & Credentials** button in the header opens a panel with:
   override). Per-agent overrides are set from each agent's own row in this
   same panel.
 
-## 6. Known limitations
+## 7. Known limitations
 
 - **Freebuff has no adapter.** Its CLI has no headless or API surface at
   all (confirmed twice — see

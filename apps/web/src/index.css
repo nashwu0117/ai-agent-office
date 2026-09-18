@@ -1427,3 +1427,84 @@ input[type="checkbox"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* v0.18: access-auth login gate — see AuthGate.tsx. Deliberately a plainer,
+   self-contained style rather than reusing .task-form's selectors (which are
+   scoped to input[type="text"]/textarea and shared across several existing
+   panels) — this screen only ever shows once, before the rest of the app UI
+   exists at all. */
+.auth-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+  padding: 20px;
+  background: var(--ink-850);
+  border: 3px solid var(--outline);
+  box-shadow: var(--pixel-shadow);
+}
+
+.auth-gate-form h1 {
+  margin: 0;
+  color: var(--paper);
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.auth-gate-form p {
+  margin: 0;
+  color: var(--paper);
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.auth-gate-form input[type="password"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  color: var(--paper);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-700);
+}
+
+.auth-gate-form input[type="password"]:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.auth-gate-form button {
+  min-height: 40px;
+  padding: 8px 14px;
+  color: var(--outline);
+  background: var(--mint);
+  border: 3px solid var(--outline);
+  cursor: pointer;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.auth-gate-form button:disabled {
+  color: var(--paper);
+  background: var(--stone-700);
+  filter: saturate(0.35);
+  cursor: not-allowed;
+}
+
+.auth-gate-form button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}

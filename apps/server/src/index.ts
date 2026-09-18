@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   Orchestrator,
@@ -20,6 +21,8 @@ import { startFormatTranslationProxy } from "./proxy-server.js";
 import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
 import { BackendProfileStore, BackendProfileValidationError } from "./backend-profile-store.js";
 import { DefaultBackendStore } from "./default-backend-store.js";
+import { requireAuth, registerAuthRoutes, isUpgradeRequestAuthenticated, logAuthStartupState } from "./auth.js";
+import { dispatchLimiter, modelsLimiter, generalApiLimiter } from "./rate-limits.js";
 
 const DEFAULT_SERVER_PORT = 43117;
 const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -217,11 +220,91 @@ const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: st
   },
 };
 
+// v0.18: CORS + access-auth hardening for the Cloudflare Tunnel exposure —
+// see auth.ts and SECURITY.md's sibling doc, and QUICKSTART.md's "Access
+// control" section for the operator-facing writeup. Every origin this app
+// is ever actually loaded from, no wildcard.
+const WEB_PORT = Number(process.env.AI_OFFICE_WEB_PORT ?? 43118);
+const EXTRA_ALLOWED_ORIGINS = (process.env.AI_OFFICE_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+const ALLOWED_ORIGINS = new Set<string>([
+  `http://localhost:${WEB_PORT}`,
+  `http://127.0.0.1:${WEB_PORT}`,
+  // This project's own Cloudflare Tunnel public hostname (~/.cloudflared/config.yml:
+  // "your-tunnel-host.example" -> localhost:43118), the same one vite.config.ts
+  // allow-lists for its dev-server Host check. If this hostname ever changes,
+  // set AI_OFFICE_ALLOWED_ORIGINS instead of editing this constant.
+  "https://your-tunnel-host.example",
+  ...EXTRA_ALLOWED_ORIGINS,
+]);
+
+class CorsOriginError extends Error {}
+
 const app = express();
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header at all: same-origin navigation, curl, or a
+      // server-to-server call — nothing for CORS to enforce.
+      if (!origin || ALLOWED_ORIGINS.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new CorsOriginError(`Origin "${origin}" is not allowed.`));
+    },
+    credentials: true,
+  })
+);
+// Gives a disallowed origin a plain 403 instead of falling through to the
+// generic 500 handler at the bottom of this file — this is an expected,
+// named rejection, not an unexpected internal error.
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof CorsOriginError) {
+    res.status(403).json({ error: "Origin not allowed." });
+    return;
+  }
+  next(err);
+});
+// v0.18: baseline security headers. Deliberately not a full helmet() config
+// — this is a single-page app served through Vite's dev server in every
+// deployment this project actually has, and a real Content-Security-Policy
+// would need to be built and verified against that setup instead of copied
+// in blind; these four are the broadly-safe, break-nothing baseline.
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  // Only honored by browsers when the response was actually received over
+  // HTTPS (true for the Cloudflare Tunnel path, harmless no-op for plain
+  // local HTTP dev) — see MDN's Strict-Transport-Security.
+  res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  next();
+});
 app.use(express.json());
+app.use("/api", generalApiLimiter);
+// v0.18: registered before the blanket requireAuth below so /api/auth/status
+// and /api/auth/login stay reachable with no session — see auth.ts.
+registerAuthRoutes(app);
+app.use("/api", requireAuth);
 
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+const wss = new WebSocketServer({
+  server: httpServer,
+  path: "/ws",
+  // v0.18: same auth check as the REST API — the initial WS "snapshot"
+  // message hands a freshly-connected socket the full agents/tasks/
+  // credential-status/backend-profiles state with no other gate, so this
+  // upgrade handshake is exactly as sensitive as any /api route.
+  verifyClient: (info, callback) => {
+    if (isUpgradeRequestAuthenticated(info.req)) {
+      callback(true);
+      return;
+    }
+    callback(false, 401, "Unauthorized");
+  },
+});
 
 const clients = new Set<WebSocket>();
 
@@ -345,7 +428,7 @@ app.get("/api/tasks", (_req, res) => {
   res.json(orchestrator.listTasks());
 });
 
-app.post("/api/tasks", async (req, res) => {
+app.post("/api/tasks", dispatchLimiter, async (req, res) => {
   const { description, workspacePath, title, requiredCapabilities } = req.body ?? {};
   if (typeof description !== "string" || !description.trim()) {
     res.status(400).json({ error: "description is required" });
@@ -385,7 +468,7 @@ app.post("/api/tasks", async (req, res) => {
 // Separate from POST /api/tasks above: the manual "user picks capabilities"
 // path is unchanged and stays fully available. This path hands the whole
 // decomposition + capability judgment to the Master instead.
-app.post("/api/goals", (req, res) => {
+app.post("/api/goals", dispatchLimiter, (req, res) => {
   const { goal, workspacePath } = req.body ?? {};
   if (typeof goal !== "string" || !goal.trim()) {
     res.status(400).json({ error: "goal is required" });
@@ -484,7 +567,7 @@ app.delete("/api/backend-profiles/:id", (req, res) => {
 // server supports happen to return the same `{ data: [{ id }] }` shape for
 // their model-listing endpoint (OpenAI's convention, and Anthropic's own
 // /v1/models — see Anthropic API docs), so one code path covers both.
-app.get("/api/backend-profiles/:id/models", async (req, res) => {
+app.get("/api/backend-profiles/:id/models", modelsLimiter, async (req, res) => {
   const profile = backendProfileStore.registry[req.params.id];
   if (!profile) {
     res.status(404).json({ error: `Backend profile "${req.params.id}" does not exist.` });
@@ -602,8 +685,22 @@ app.put("/api/default-backend-profile", (req, res) => {
   res.json({ backendProfile: defaultBackendStore.get() });
 });
 
+// v0.18: last middleware, catches anything an /api handler threw (Express 4
+// forwards a synchronous throw from a route handler here automatically) —
+// logs the real error server-side and returns a generic message, never
+// `err.message`/stack/file paths, since this now answers requests from
+// outside this machine. Every route above already handles its own expected
+// failure modes with a specific status + safe message; only truly
+// unexpected errors reach this.
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[ai-office] unhandled request error:", err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Internal server error." });
+});
+
 httpServer.listen(PORT, () => {
   console.log(`[ai-office] server listening on http://localhost:${PORT}`);
+  logAuthStartupState();
   // v0.7: surfaced at startup instead of only discovered when a live call
   // fails (that's exactly what v0.6.1's smoke test hit) — id/provider/
   // available only, never the secret value itself.

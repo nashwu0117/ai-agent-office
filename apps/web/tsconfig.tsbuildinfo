@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/BackendProfilesPanel.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/office/OfficeScene.tsx","./src/office/assets.ts","./src/ws/client.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/AuthGate.tsx","./src/BackendProfilesPanel.tsx","./src/auth-client.ts","./src/main.tsx","./src/vite-env.d.ts","./src/i18n/LanguageToggle.tsx","./src/i18n/language-context.tsx","./src/i18n/translations.ts","./src/office/OfficeScene.tsx","./src/office/assets.ts","./src/ws/client.ts"],"version":"5.9.3"}

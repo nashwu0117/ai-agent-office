@@ -6,6 +6,8 @@ import { OfficeScene } from "./office/OfficeScene.js";
 import { BackendProfilesPanel } from "./BackendProfilesPanel.js";
 import { useLanguage } from "./i18n/language-context.js";
 import { LanguageToggle } from "./i18n/LanguageToggle.js";
+import { useAuthRequired } from "./AuthGate.js";
+import { logout } from "./auth-client.js";
 import "./backend-profiles-panel.css";
 
 interface LogLine {
@@ -55,6 +57,7 @@ const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.ho
 
 export default function App() {
   const { t } = useLanguage();
+  const authRequired = useAuthRequired();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasksById, setTasksById] = useState<Record<string, Task>>({});
   const [logsByAgent, setLogsByAgent] = useState<Record<string, LogLine[]>>({});
@@ -359,6 +362,11 @@ export default function App() {
             </div>
           )}
           <LanguageToggle />
+          {authRequired && (
+            <button type="button" className="bp-open-button" onClick={() => logout().then(() => location.reload())}>
+              {t.logoutButton}
+            </button>
+          )}
         </div>
       </header>
 

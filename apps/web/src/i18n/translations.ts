@@ -180,6 +180,16 @@ export interface Translations {
   colAgent: string;
   colBackendProfile: string;
   backendProfileForAgentAriaLabel: (agentId: string) => string;
+
+  // v0.18: access-auth login gate — see AuthGate.tsx.
+  loginHeading: string;
+  loginDescription: string;
+  loginNoPasswordConfigured: string;
+  loginPasswordLabel: string;
+  loginPasswordPlaceholder: string;
+  loginSubmitting: string;
+  loginSubmit: string;
+  logoutButton: string;
 }
 
 const AGENT_STATE_LABELS_EN: Record<string, string> = {
@@ -442,6 +452,16 @@ const en: Translations = {
   colAgent: "Agent",
   colBackendProfile: "Backend profile",
   backendProfileForAgentAriaLabel: (agentId) => `Backend profile for ${agentId}`,
+
+  loginHeading: "AI Office — sign in",
+  loginDescription: "This is being accessed from outside localhost, so a password is required.",
+  loginNoPasswordConfigured:
+    "No AI_OFFICE_ACCESS_PASSWORD is set on the server yet — remote access is disabled until the operator sets one in apps/server/.env.local and restarts.",
+  loginPasswordLabel: "Password",
+  loginPasswordPlaceholder: "Password",
+  loginSubmitting: "Signing in…",
+  loginSubmit: "Sign in",
+  logoutButton: "Log out",
 };
 
 const zhTW: Translations = {
@@ -621,6 +641,15 @@ const zhTW: Translations = {
   colAgent: "代理",
   colBackendProfile: "後端設定檔",
   backendProfileForAgentAriaLabel: (agentId) => `${agentId} 的後端設定檔`,
+
+  loginHeading: "AI Office — 登入",
+  loginDescription: "目前是從 localhost 以外的來源連進來,需要輸入密碼才能繼續。",
+  loginNoPasswordConfigured: "伺服器尚未設定 AI_OFFICE_ACCESS_PASSWORD——在使用者於 apps/server/.env.local 設定並重啟伺服器前,遠端連線會被拒絕。",
+  loginPasswordLabel: "密碼",
+  loginPasswordPlaceholder: "密碼",
+  loginSubmitting: "登入中…",
+  loginSubmit: "登入",
+  logoutButton: "登出",
 };
 
 export const translations: Record<Lang, Translations> = {
