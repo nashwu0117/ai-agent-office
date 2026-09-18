@@ -178,3 +178,19 @@ export async function fetchBackendProfileModels(id: string): Promise<string[]> {
   }
   return body.models ?? [];
 }
+
+/**
+ * v0.21.2: the one call that returns a real credential value — the eye-icon
+ * "show plaintext" toggle in BackendProfilesPanel, added at the operator's
+ * own explicit request after being told this crosses this project's usual
+ * "never send the secret value itself" boundary. See index.ts's GET
+ * .../reveal for the server-side reasoning and rate limit.
+ */
+export async function revealBackendProfileSecret(id: string): Promise<{ baseUrl: string | null; authToken: string | null }> {
+  const res = await fetch(`/api/backend-profiles/${encodeURIComponent(id)}/reveal`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? `request failed with status ${res.status}`);
+  }
+  return { baseUrl: body.baseUrl ?? null, authToken: body.authToken ?? null };
+}

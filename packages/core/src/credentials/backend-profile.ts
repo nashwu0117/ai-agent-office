@@ -128,9 +128,11 @@ export type BackendProfileRegistry = Record<string, BackendProfile>;
  * v0.10: the shape of a BackendProfile the server ever sends to the browser
  * — id/label/apiFormat/env-var-*names* for the management UI (packages
  * apps/web/src/BackendProfilesPanel.tsx) plus a computed `available` flag.
- * Never the env vars' actual values: this is exactly the boundary
- * BackendProfile's own field comments describe ("Never the value itself"),
- * just reused for the read side instead of resolveBackendEnv's write side.
+ * Never the auth token's actual value — that boundary stays intact (see
+ * authTokenEnvVar's own comment on the one route that deliberately crosses
+ * it on request, apps/server/src/index.ts's GET .../reveal). baseUrlValue
+ * below is the one exception: a base URL was never treated as a secret in
+ * this codebase (it's a hostname, not a credential), so it's sent plainly.
  */
 export interface BackendProfileClientInfo {
   id: string;
@@ -138,6 +140,14 @@ export interface BackendProfileClientInfo {
   apiFormat: BackendProfile["apiFormat"];
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
+  /**
+   * v0.21.2: baseUrlEnvVar's current *value* (e.g. "https://api.b.ai"),
+   * sent plainly since a base URL isn't a secret — unlike authTokenEnvVar,
+   * which still never sends its value here (see GET .../reveal for the
+   * one on-demand, rate-limited, explicitly-requested exception to that).
+   * Undefined when the env var isn't set.
+   */
+  baseUrlValue?: string;
   /** v0.21: see RoleModelMap. Sent as-is — never a secret. */
   roleModelMap?: RoleModelMap;
   /** v0.21: see BackendProfile.fallbackModel. */

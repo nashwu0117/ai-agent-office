@@ -465,6 +465,23 @@
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
+/* v0.21.2: eye-icon reveal toggle next to the API key field. */
+.bp-reveal-field {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.bp-reveal-field input {
+  flex: 1 1 auto;
+}
+
+.bp-reveal-toggle {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.55rem !important;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .bp-fieldset {
   border: 1px solid #2b3143;
   border-radius: 6px;
@@ -509,19 +526,20 @@
   flex: 1 1 auto;
 }
 
-.bp-preview {
-  background: #10131b;
-  border: 1px solid #2b3143;
-  border-radius: 4px;
+/* v0.21.2: the live preview became an editable textarea (see buildPreview's
+   own comment) — darker background than an ordinary field so it still
+   reads as "generated content you're overriding", not just another input. */
+.bp-preview-editable {
+  background: #10131b !important;
   color: #a7adbe;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.78rem;
-  margin: 0;
-  max-height: 260px;
-  overflow: auto;
-  padding: 0.6rem;
-  white-space: pre-wrap;
-  word-break: break-word;
+  max-height: 320px;
+}
+
+.bp-preview-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
 }
 
 .bp-provider-form-actions {

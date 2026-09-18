@@ -38,6 +38,22 @@ export const modelsLimiter = rateLimit({
   message: { error: "Too many model-listing requests. Try again in a few minutes." },
 });
 
+/**
+ * v0.21.2: backend-profile secret reveal — this is the one route that
+ * actually returns a real API key/token value to the browser, at the
+ * operator's own explicit request (the Backend & Credentials panel's
+ * eye-icon "show plaintext" toggle). Tighter than modelsLimiter, same
+ * brute-force-brake philosophy as loginLimiter, since this is the more
+ * sensitive of the two.
+ */
+export const revealSecretLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many secret-reveal requests. Try again later." },
+});
+
 /** Everything else under /api — a generous ceiling, just to blunt a runaway client or scripted abuse. */
 export const generalApiLimiter = rateLimit({
   windowMs: 60 * 1000,

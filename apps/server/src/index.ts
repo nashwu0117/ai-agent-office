@@ -22,7 +22,7 @@ import { AgentBackendAssignmentStore } from "./agent-backend-assignments.js";
 import { BackendProfileStore, BackendProfileValidationError, type BackendProfileUpdate } from "./backend-profile-store.js";
 import { DefaultBackendStore } from "./default-backend-store.js";
 import { requireAuth, registerAuthRoutes, isUpgradeRequestAuthenticated, logAuthStartupState } from "./auth.js";
-import { dispatchLimiter, modelsLimiter, generalApiLimiter } from "./rate-limits.js";
+import { dispatchLimiter, modelsLimiter, generalApiLimiter, revealSecretLimiter } from "./rate-limits.js";
 
 const DEFAULT_SERVER_PORT = 43117;
 const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -655,6 +655,30 @@ app.get("/api/backend-profiles/:id/models", modelsLimiter, async (req, res) => {
   } finally {
     clearTimeout(timeout);
   }
+});
+
+// v0.21.2: the one route that sends a real credential value back to the
+// browser — the Backend & Credentials panel's eye-icon "show plaintext"
+// toggle, added at the operator's explicit request after being told this
+// crosses the "never send the value itself" boundary every other route in
+// this file keeps (see BackendProfile's own field comments) and that this
+// server is reachable through a Cloudflare Tunnel guarded by one shared
+// password, not per-account auth. Still behind the same `requireAuth`
+// gate as everything else under /api (registered above, in index.ts's
+// middleware chain) — this does not open a new unauthenticated surface,
+// it just changes what an *already-authenticated* caller can see. Tighter
+// rate limit than /models (revealSecretLimiter) since this is the more
+// sensitive of the two.
+app.get("/api/backend-profiles/:id/reveal", revealSecretLimiter, (req, res) => {
+  const profile = backendProfileStore.registry[req.params.id];
+  if (!profile) {
+    res.status(404).json({ error: `Backend profile "${req.params.id}" does not exist.` });
+    return;
+  }
+  res.json({
+    baseUrl: process.env[profile.baseUrlEnvVar] ?? null,
+    authToken: process.env[profile.authTokenEnvVar] ?? null,
+  });
 });
 
 // v0.10: repoints an already-registered agent at a different backend

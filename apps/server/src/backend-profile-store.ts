@@ -301,6 +301,7 @@ function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
     apiFormat: profile.apiFormat,
     baseUrlEnvVar: profile.baseUrlEnvVar,
     authTokenEnvVar: profile.authTokenEnvVar,
+    ...(baseUrl?.trim() ? { baseUrlValue: baseUrl.trim() } : {}),
     ...(profile.roleModelMap ? { roleModelMap: profile.roleModelMap } : {}),
     ...(profile.fallbackModel ? { fallbackModel: profile.fallbackModel } : {}),
     ...(profile.customHeaders ? { customHeaders: profile.customHeaders } : {}),

@@ -160,6 +160,8 @@ export interface Translations {
   authTokenEnvVarFieldLabel: string;
   baseUrlEnvVarPlaceholder: string;
   authTokenEnvVarPlaceholder: string;
+  revealSecretAriaLabel: string;
+  hideSecretAriaLabel: string;
 
   // Login-based providers (Claude Code official, Codex, Cline, OpenCode) —
   // no Base URL/API key fields, just login status + how-to-login text.
@@ -189,6 +191,7 @@ export interface Translations {
 
   previewHeading: string;
   previewHint: string;
+  applyPreviewButton: string;
 
   validationLabelRequired: string;
   validationCustomBodyInvalidJson: string;
@@ -431,7 +434,7 @@ const en: Translations = {
 
   backendProfilesHeading: "Backend profiles",
   providerEditorIntro:
-    "Pick a provider on the left to edit it in full — name, Base URL, API key, upstream format, per-role model mapping, fallback model, custom headers/body, and a live preview of what this actually resolves to. Base URL/API key fields never show a stored secret back to you: leave either blank to keep it unchanged, or type/paste a new env var name or real value to overwrite it.",
+    "Pick a provider on the left to edit it in full — name, Base URL, API key, upstream format, per-role model mapping, fallback model, custom headers/body, and a live preview of what this actually resolves to. Base URL isn't a secret, so it's always shown; the API key stays masked until you click 👁 to reveal it (leave it blank to keep the current one, or type/paste a new one to overwrite).",
   providerListHeading: "Providers",
   noBackendProfiles: "No backend profiles registered yet.",
   colId: "Id",
@@ -450,8 +453,10 @@ const en: Translations = {
   apiFormatFieldLabel: "API format",
   baseUrlEnvVarFieldLabel: "Base URL",
   authTokenEnvVarFieldLabel: "API key",
-  baseUrlEnvVarPlaceholder: "leave blank to keep current — or type an env var name / paste a real URL",
-  authTokenEnvVarPlaceholder: "leave blank to keep current — or type an env var name / paste a real key",
+  baseUrlEnvVarPlaceholder: "not set yet — type an env var name or paste a real URL",
+  authTokenEnvVarPlaceholder: "leave blank to keep current — click 👁 to reveal it, or type/paste a new key to overwrite",
+  revealSecretAriaLabel: "Show the real API key (it will be sent to this browser)",
+  hideSecretAriaLabel: "Hide the API key again",
 
   loginProviderNote:
     "This provider authenticates through its own CLI's login session, not a Base URL/API key pair — there's nothing to edit here beyond checking whether that login is in place.",
@@ -481,7 +486,9 @@ const en: Translations = {
   customBodyPlaceholder: '{\n  "extra_param": true\n}',
 
   previewHeading: "Live preview",
-  previewHint: "What this profile resolves to — secret values are never shown, only whether they're set.",
+  previewHint:
+    "What this profile resolves to — edit or paste JSON here and click Apply to write it back into the fields above (name, role mapping, fallback model, custom headers/body). The baseUrlEnvVar/authTokenEnvVar lines are reference-only status strings, never the real credential, and editing them here does nothing — use the Base URL/API key fields above for those.",
+  applyPreviewButton: "Apply to fields above",
 
   validationLabelRequired: "Label is required.",
   validationCustomBodyInvalidJson: "Custom body override must be valid JSON (a plain object, e.g. { \"key\": \"value\" }).",
@@ -643,7 +650,7 @@ const zhTW: Translations = {
 
   backendProfilesHeading: "後端設定檔",
   providerEditorIntro:
-    "在左側選一個供應商,即可在這裡完整編輯它:名稱、Base URL、API 金鑰、上游格式、角色→模型對應、Fallback 模型、自訂 headers/body,以及即時預覽。Base URL/API 金鑰欄位絕不會把已存的密文顯示回來:留空表示保持不變,輸入新的環境變數名稱或直接貼上新值即可覆寫。",
+    "在左側選一個供應商,即可在這裡完整編輯它:名稱、Base URL、API 金鑰、上游格式、角色→模型對應、Fallback 模型、自訂 headers/body,以及即時預覽。Base URL 不是密鑰,所以一律直接顯示;API 金鑰預設遮住,點 👁 才會顯示真正的值(留空表示保持目前的金鑰,輸入或貼上新值即可覆寫)。",
   providerListHeading: "供應商",
   noBackendProfiles: "尚未註冊任何後端設定檔。",
   colId: "ID",
@@ -662,8 +669,10 @@ const zhTW: Translations = {
   apiFormatFieldLabel: "API 格式",
   baseUrlEnvVarFieldLabel: "Base URL",
   authTokenEnvVarFieldLabel: "API 金鑰",
-  baseUrlEnvVarPlaceholder: "留空 = 保持不變 — 或輸入環境變數名稱/直接貼上真實網址",
-  authTokenEnvVarPlaceholder: "留空 = 保持不變 — 或輸入環境變數名稱/直接貼上真實金鑰",
+  baseUrlEnvVarPlaceholder: "尚未設定 — 輸入環境變數名稱或直接貼上真實網址",
+  authTokenEnvVarPlaceholder: "留空 = 保持不變 — 點 👁 可看到目前的金鑰,或直接輸入/貼上新的覆寫",
+  revealSecretAriaLabel: "顯示真正的 API 金鑰(會傳到這個瀏覽器)",
+  hideSecretAriaLabel: "再次隱藏 API 金鑰",
 
   loginProviderNote: "這個供應商是透過自己 CLI 的登入工作階段驗證,不是 Base URL/API 金鑰組合——這裡沒有欄位可編輯,只能確認登入狀態。",
   loginCommandLabel: (command) => `在終端機執行 ${command} 以登入。`,
@@ -692,7 +701,9 @@ const zhTW: Translations = {
   customBodyPlaceholder: '{\n  "extra_param": true\n}',
 
   previewHeading: "即時預覽",
-  previewHint: "這組設定實際會解析成什麼——密文值一律不顯示,只顯示是否已設定。",
+  previewHint:
+    "這組設定實際會解析成什麼——可以直接在這裡編輯或貼上 JSON,按「套用到上方欄位」就會寫回名稱、角色對應、Fallback 模型、自訂 headers/body。baseUrlEnvVar/authTokenEnvVar 這兩行只是參考用的狀態字串,不是真正的密鑰,在這裡改它們不會有作用——要改 Base URL/API 金鑰請用上面各自的欄位。",
+  applyPreviewButton: "套用到上方欄位",
 
   validationLabelRequired: "名稱為必填。",
   validationCustomBodyInvalidJson: "自訂 Body 覆寫必須是合法 JSON(一個物件,例如 { \"key\": \"value\" })。",

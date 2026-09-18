@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { AGENT_ROLES, type Agent, type AgentRole, type BackendProfileClientInfo, type CredentialSourceStatus } from "@ai-office/core";
-import { fetchBackendProfileModels, setAgentBackendProfile, setDefaultBackendProfile, updateBackendProfile } from "./ws/client.js";
+import {
+  fetchBackendProfileModels,
+  revealBackendProfileSecret,
+  setAgentBackendProfile,
+  setDefaultBackendProfile,
+  updateBackendProfile,
+} from "./ws/client.js";
 import { useLanguage } from "./i18n/language-context.js";
 
 // v0.10: Credential / Backend Profile management panel — the UI Part A of
@@ -95,7 +101,13 @@ function draftFromProfile(p: BackendProfileClientInfo): ProfileDraft {
   return {
     label: p.label,
     apiFormat: p.apiFormat,
-    baseUrlInput: "",
+    // v0.21.2: Base URL isn't a secret, so it's always shown/editable as
+    // its real current value now (p.baseUrlValue) — or, if nothing's been
+    // set yet, the env var *name* it would be seeded under (p.baseUrlEnvVar,
+    // the original v0.10 seed-name behavior), never blank either way. API
+    // key stays blank until the operator clicks the eye icon to reveal it
+    // (see the panel's handleToggleReveal) — that boundary is unchanged.
+    baseUrlInput: p.baseUrlValue ?? p.baseUrlEnvVar,
     authTokenInput: "",
     roleModelMap: { ...EMPTY_ROLE_MAP, ...(p.roleModelMap ?? {}) },
     fallbackModel: p.fallbackModel ?? "",
@@ -191,6 +203,21 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // v0.21.2: the "live preview" box is now a two-way editable textarea, per
+  // the operator's own request — typing/pasting JSON into it and clicking
+  // "Apply" writes recognized fields back into `draft`. `previewText` only
+  // re-derives from `draft` (via buildPreview) when `draft` itself changes
+  // — i.e. when a *field above* was edited, or Apply just ran — never on
+  // every keystroke inside the textarea itself, so free typing/pasting here
+  // is never clobbered mid-edit.
+  const [previewText, setPreviewText] = useState("");
+  const [previewApplyError, setPreviewApplyError] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedProfile && draft) setPreviewText(buildPreview(selectedProfile, draft));
+    setPreviewApplyError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProfile?.id, draft]);
+
   // v0.21.1: real model ids this profile's own key can see, fetched on
   // demand — feeds ModelField's dropdown for the role/fallback fields
   // below. Reset whenever the selected profile changes so a stale list
@@ -213,10 +240,90 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
     }
   }
 
+  // v0.21.2: eye-icon reveal for the API key field — see revealBackendProfileSecret's
+  // own doc comment for the security tradeoff this was built with the
+  // operator's explicit go-ahead on. `authTokenRevealed` just toggles the
+  // input's type ("password" <-> "text"); the real value, once fetched, stays
+  // in draft.authTokenInput so toggling back to masked doesn't re-blank it —
+  // matches a password-manager-style show/hide, not a re-fetch each click.
+  const [authTokenRevealed, setAuthTokenRevealed] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+  useEffect(() => {
+    setAuthTokenRevealed(false);
+    setRevealError(null);
+  }, [selectedProfile?.id]);
+
+  async function handleToggleReveal() {
+    if (!selectedProfile || !draft) return;
+    if (authTokenRevealed) {
+      setAuthTokenRevealed(false);
+      return;
+    }
+    if (!draft.authTokenInput) {
+      setRevealing(true);
+      setRevealError(null);
+      try {
+        const { authToken } = await revealBackendProfileSecret(selectedProfile.id);
+        setDraft((d) => (d ? { ...d, authTokenInput: authToken ?? "" } : d));
+      } catch (err) {
+        setRevealError(err instanceof Error ? err.message : String(err));
+        setRevealing(false);
+        return;
+      }
+      setRevealing(false);
+    }
+    setAuthTokenRevealed(true);
+  }
+
   function resetDraft() {
     if (selectedProfile) setDraft(draftFromProfile(selectedProfile));
     setSaveError(null);
     setSaved(false);
+  }
+
+  /**
+   * v0.21.2: parses previewText as JSON and writes recognized fields back
+   * into `draft` — the operator's own request for a paste-able preview.
+   * Deliberately ignores `id`, `baseUrlEnvVar`, and `authTokenEnvVar` even
+   * if present in the pasted JSON: the first is immutable, and the latter
+   * two are display-only status strings here (see buildPreview's own
+   * comment on why those two specifically never round-trip through this
+   * box) — editing the actual Base URL/API key still goes through their
+   * own dedicated fields above.
+   */
+  function handleApplyPreview() {
+    if (!draft) return;
+    try {
+      const parsed = JSON.parse(previewText) as Record<string, unknown>;
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
+      const next: ProfileDraft = { ...draft };
+      if (typeof parsed.label === "string") next.label = parsed.label;
+      if (typeof parsed.apiFormat === "string") next.apiFormat = parsed.apiFormat;
+      if (parsed.roleModelMap && typeof parsed.roleModelMap === "object" && !Array.isArray(parsed.roleModelMap)) {
+        const rm = { ...EMPTY_ROLE_MAP };
+        for (const role of AGENT_ROLES) {
+          const v = (parsed.roleModelMap as Record<string, unknown>)[role];
+          if (typeof v === "string") rm[role] = v;
+        }
+        next.roleModelMap = rm;
+      }
+      if (typeof parsed.fallbackModel === "string") next.fallbackModel = parsed.fallbackModel;
+      if (parsed.customHeaders && typeof parsed.customHeaders === "object" && !Array.isArray(parsed.customHeaders)) {
+        next.headers = Object.entries(parsed.customHeaders as Record<string, unknown>).map(([key, value]) => ({
+          key,
+          value: typeof value === "string" ? value : String(value),
+        }));
+      }
+      if ("customBodyOverride" in parsed) {
+        const body = parsed.customBodyOverride;
+        next.customBodyText = body && typeof body === "object" && Object.keys(body as object).length > 0 ? JSON.stringify(body, null, 2) : "";
+      }
+      setDraft(next);
+      setPreviewApplyError(null);
+    } catch (err) {
+      setPreviewApplyError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function handleSave() {
@@ -264,14 +371,23 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
       await updateBackendProfile(selectedProfile.id, {
         label,
         apiFormat: draft.apiFormat,
-        ...(draft.baseUrlInput.trim() ? { baseUrlEnvVar: draft.baseUrlInput.trim() } : {}),
+        // v0.21.2: baseUrlInput is now always a real value or the seed env
+        // var name (see draftFromProfile), never blank, so it's always sent
+        // — unlike authTokenInput, which is genuinely blank until the
+        // operator either reveals or types over it, so "leave blank = keep
+        // unchanged" still applies there.
+        baseUrlEnvVar: draft.baseUrlInput.trim(),
         ...(draft.authTokenInput.trim() ? { authTokenEnvVar: draft.authTokenInput.trim() } : {}),
         roleModelMap,
         fallbackModel: draft.fallbackModel.trim() || undefined,
         customHeaders,
         customBodyOverride,
       });
-      setDraft((d) => (d ? { ...d, baseUrlInput: "", authTokenInput: "" } : d));
+      // v0.21.2: baseUrlInput keeps showing what was just saved (it's not a
+      // secret); authTokenInput/authTokenRevealed reset so a just-saved key
+      // goes back to masked-and-hidden, matching every other page load.
+      setDraft((d) => (d ? { ...d, authTokenInput: "" } : d));
+      setAuthTokenRevealed(false);
       setSaved(true);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
@@ -485,15 +601,32 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                     </label>
                     <label className="bp-field-wide">
                       {t.authTokenEnvVarFieldLabel}
-                      <input
-                        type="password"
-                        placeholder={t.authTokenEnvVarPlaceholder}
-                        value={draft.authTokenInput}
-                        onChange={(e) => setDraft({ ...draft, authTokenInput: e.target.value })}
-                      />
+                      <div className="bp-reveal-field">
+                        <input
+                          type={authTokenRevealed ? "text" : "password"}
+                          placeholder={t.authTokenEnvVarPlaceholder}
+                          value={draft.authTokenInput}
+                          onChange={(e) => setDraft({ ...draft, authTokenInput: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          className="bp-reveal-toggle"
+                          onClick={handleToggleReveal}
+                          disabled={revealing}
+                          aria-label={authTokenRevealed ? t.hideSecretAriaLabel : t.revealSecretAriaLabel}
+                          title={authTokenRevealed ? t.hideSecretAriaLabel : t.revealSecretAriaLabel}
+                        >
+                          {revealing ? "…" : authTokenRevealed ? "🙈" : "👁"}
+                        </button>
+                      </div>
                       <span className="bp-field-caption">
                         {selectedProfile.authTokenEnvVar} — {selectedProfile.available ? t.available : t.unavailable}
                       </span>
+                      {revealError && (
+                        <span className="bp-form-error" role="alert">
+                          {revealError}
+                        </span>
+                      )}
                     </label>
                   </div>
 
@@ -589,7 +722,23 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
                   <fieldset className="bp-fieldset">
                     <legend>{t.previewHeading}</legend>
                     <p className="bp-hint">{t.previewHint}</p>
-                    <pre className="bp-preview">{buildPreview(selectedProfile, draft)}</pre>
+                    <textarea
+                      className="bp-json-textarea bp-preview-editable"
+                      value={previewText}
+                      onChange={(e) => setPreviewText(e.target.value)}
+                      rows={12}
+                      spellCheck={false}
+                    />
+                    <div className="bp-preview-actions">
+                      <button type="button" onClick={handleApplyPreview}>
+                        {t.applyPreviewButton}
+                      </button>
+                      {previewApplyError && (
+                        <span className="bp-form-error" role="alert">
+                          {previewApplyError}
+                        </span>
+                      )}
+                    </div>
                   </fieldset>
 
                   <div className="bp-provider-form-actions">
@@ -686,14 +835,22 @@ export function BackendProfilesPanel({ open, onClose, credentialStatuses, backen
   );
 }
 
-// v0.21: renders exactly what this profile will resolve to — never a stored
-// secret value, only whether baseUrl/authToken are set (from the server's
-// own `available`/env-var-*name* fields, the same boundary every other
-// value in this panel respects) and the plain-string, never-secret bits
-// (role map / fallback model / header names / body override) as-is. Header
-// *values* are masked since an operator could plausibly put something
-// sensitive in one (see customHeaders' own doc comment on why this project
-// doesn't assume otherwise).
+// v0.21: renders exactly what this profile will resolve to. baseUrlEnvVar/
+// authTokenEnvVar still only ever show the env var *name* plus a set/not-set
+// status — never the credential's real value, the one boundary this box
+// never crosses (see BackendProfileClientInfo's own field comments); those
+// two lines are also ignored by handleApplyPreview even if edited, so
+// there's no way to "paste a fake status string" into actually changing the
+// credential from here.
+//
+// v0.21.2: header *values* are no longer masked here — this box became a
+// two-way editable JSON panel at the operator's own request, and a masked
+// "••••" would otherwise get pasted straight back into the real header
+// value on Apply. This is a different boundary than baseUrl/authToken:
+// those never leave the server at all, while a custom header's value is
+// something the operator just typed into `draft.headers` in this same
+// browser tab moments ago, so showing it back to them here reveals nothing
+// new.
 function buildPreview(profile: BackendProfileClientInfo, draft: ProfileDraft): string {
   const roleModelMap: Record<string, string> = {};
   for (const role of AGENT_ROLES) {
@@ -703,7 +860,7 @@ function buildPreview(profile: BackendProfileClientInfo, draft: ProfileDraft): s
   const headers: Record<string, string> = {};
   for (const h of draft.headers) {
     const key = h.key.trim();
-    if (key) headers[key] = "••••";
+    if (key) headers[key] = h.value;
   }
   let customBodyOverride: unknown = undefined;
   if (draft.customBodyText.trim()) {
@@ -717,8 +874,12 @@ function buildPreview(profile: BackendProfileClientInfo, draft: ProfileDraft): s
     id: profile.id,
     label: draft.label,
     apiFormat: draft.apiFormat,
-    baseUrlEnvVar: `${draft.baseUrlInput.trim() ? "(new value)" : profile.baseUrlEnvVar} — ${profile.available ? "set" : "not set"}`,
-    authTokenEnvVar: `${draft.authTokenInput.trim() ? "(new value)" : profile.authTokenEnvVar} — ${profile.available ? "set" : "not set"}`,
+    // v0.21.2: baseUrl isn't a secret, so this shows the real current input
+    // directly now (not a status string) — still ignored by
+    // handleApplyPreview, since the dedicated Base URL field above is the
+    // one source of truth for it.
+    baseUrl: draft.baseUrlInput,
+    authTokenEnvVar: `${draft.authTokenInput.trim() ? "(revealed or overridden)" : profile.authTokenEnvVar} — ${profile.available ? "set" : "not set"}`,
     ...(Object.keys(roleModelMap).length > 0 ? { roleModelMap } : {}),
     ...(draft.fallbackModel.trim() ? { fallbackModel: draft.fallbackModel.trim() } : {}),
     ...(Object.keys(headers).length > 0 ? { customHeaders: headers } : {}),
