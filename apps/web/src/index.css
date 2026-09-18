@@ -235,6 +235,35 @@ input[type="checkbox"] {
   background: var(--danger);
 }
 
+.app-header-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.lang-toggle {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  color: var(--paper-muted);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-700);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lang-toggle:hover {
+  color: var(--paper);
+  border-color: var(--gold);
+}
+
 .app-header h1::after {
   align-self: flex-end;
   margin-bottom: 1px;

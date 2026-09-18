@@ -1,5 +1,7 @@
 # AI Office
 
+_English version. The web UI itself is bilingual (Traditional Chinese / English, toggle in the top-right corner) as of v0.17 — this document is English-only._
+
 An open-source "AI company" office: instead of a wall of terminals, you see a
 2D pixel-art office where each worker corresponds to a real coding CLI agent.
 Idle workers wander the Public/Talent Area; once assigned a task they walk to

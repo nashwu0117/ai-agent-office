@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Application, Container, Graphics, Sprite, type Texture } from "pixi.js";
 import type { Agent, AgentState } from "@ai-office/core";
 import { CHARACTER_KEYS, loadOfficeTextures, type AssetKey } from "./assets.js";
+import { useLanguage } from "../i18n/language-context.js";
 
 // World is authored on a tile grid (Kenney's Tiny Dungeon tiles are 16x16)
 // and only converted to screen pixels at draw time via tileToScreen(). ZOOM
@@ -230,6 +231,7 @@ export function OfficeScene({
   onSelect,
   securityAlertAgentIds,
 }: OfficeSceneProps) {
+  const { t } = useLanguage();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const spritesRef = useRef<Map<string, SpriteBundle>>(new Map());
@@ -314,22 +316,21 @@ export function OfficeScene({
       aria-describedby="office-scene-summary"
     >
       <h2 id="office-scene-heading" className="sr-only">
-        Live office agent status
+        {t.officeSceneHeading}
       </h2>
       <p id="office-scene-summary" className="sr-only">
-        The pixel-art canvas is decorative. Use the following agent buttons to open the same agent details with a
-        keyboard or screen reader.
+        {t.officeSceneSummary}
       </p>
-      <ul className="agent-access-list" aria-label="Office agents">
+      <ul className="agent-access-list" aria-label={t.officeAgentsListLabel}>
         {agents.map((agent) => {
           const progress = progressByAgent[agent.id];
-          const state = agent.state.replaceAll("_", " ");
+          const state = t.agentStateLabel(agent.state);
           return (
             <li key={agent.id}>
               <button
                 type="button"
                 aria-pressed={selectedId === agent.id}
-                aria-label={`${agent.id}, ${state}${progress ? `, ${progress}` : ""}. Open agent details.`}
+                aria-label={t.agentAccessLabel(agent.id, state, progress)}
                 onClick={() => onSelect(agent.id)}
               >
                 <span aria-hidden="true" className={`agent-access-state agent-access-state-${agent.state}`}>

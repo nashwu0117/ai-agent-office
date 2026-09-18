@@ -4,6 +4,8 @@ import { KNOWN_CAPABILITIES } from "@ai-office/core";
 import { OfficeClient, submitGoal, submitTask } from "./ws/client.js";
 import { OfficeScene } from "./office/OfficeScene.js";
 import { BackendProfilesPanel } from "./BackendProfilesPanel.js";
+import { useLanguage } from "./i18n/language-context.js";
+import { LanguageToggle } from "./i18n/LanguageToggle.js";
 import "./backend-profiles-panel.css";
 
 interface LogLine {
@@ -46,25 +48,11 @@ function goalColor(goalId: string): string {
   return GOAL_COLORS[hash % GOAL_COLORS.length];
 }
 
-// Display-only labels — every agent still goes through the exact same UI
-// path regardless of runtime; this just makes the id readable.
-const RUNTIME_LABELS: Record<string, string> = {
-  "claude-code": "Claude Code",
-  opencode: "OpenCode",
-  cline: "Cline",
-};
-
-// v0.9: display-only labels for a backendProfile's apiFormat, keyed by the
-// exact BackendProfile["apiFormat"] union value from @ai-office/core.
-const API_FORMAT_LABELS: Record<string, string> = {
-  anthropic: "Anthropic Messages API",
-  "openai-chat-completions": "OpenAI Chat Completions (translated)",
-};
-
 const SERVER_PORT = import.meta.env.VITE_SERVER_PORT ?? "43117";
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${SERVER_PORT}`;
 
 export default function App() {
+  const { t } = useLanguage();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasksById, setTasksById] = useState<Record<string, Task>>({});
   const [logsByAgent, setLogsByAgent] = useState<Record<string, LogLine[]>>({});
@@ -88,6 +76,11 @@ export default function App() {
   const [announcement, setAnnouncement] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const clientRef = useRef<OfficeClient | null>(null);
+  // The socket must survive language switches, so the message handler below
+  // reads translations through this ref instead of depending on `t` and
+  // reconnecting the websocket every time the toggle is clicked.
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     const client = new OfficeClient(WS_URL);
@@ -96,26 +89,24 @@ export default function App() {
     const unsubscribe = client.subscribe((msg) => {
       if (msg.type === "snapshot") {
         setAgents(msg.agents);
-        setTasksById(Object.fromEntries(msg.tasks.map((t) => [t.id, t])));
+        setTasksById(Object.fromEntries(msg.tasks.map((task) => [task.id, task])));
         setCredentialStatuses(msg.credentials);
         setBackendProfiles(msg.backendProfiles ?? []);
         setDefaultBackendProfileState(msg.defaultBackendProfile ?? null);
-        setAnnouncement(
-          `Office updated. ${msg.agents.length} agent${msg.agents.length === 1 ? "" : "s"} and ${msg.tasks.length} task${msg.tasks.length === 1 ? "" : "s"} loaded.`
-        );
+        setAnnouncement(tRef.current.announceSnapshot(msg.agents.length, msg.tasks.length));
         return;
       }
 
       if (msg.type === "credential_status_changed") {
         setCredentialStatuses(msg.sources);
         const available = msg.sources.filter((source) => source.available).length;
-        setAnnouncement(`Credential status updated. ${available} of ${msg.sources.length} available.`);
+        setAnnouncement(tRef.current.announceCredentialStatus(available, msg.sources.length));
         return;
       }
 
       if (msg.type === "backend_profiles_changed") {
         setBackendProfiles(msg.profiles);
-        setAnnouncement(`Backend profiles updated. ${msg.profiles.length} profile${msg.profiles.length === 1 ? "" : "s"} registered.`);
+        setAnnouncement(tRef.current.announceBackendProfiles(msg.profiles.length));
         return;
       }
 
@@ -123,13 +114,17 @@ export default function App() {
         setAgents((prev) =>
           prev.map((a) => (a.id === msg.agentId ? { ...a, backendProfile: msg.backendProfile } : a))
         );
-        setAnnouncement(`${msg.agentId} reassigned to backend profile: ${msg.backendProfile ?? "official"}.`);
+        setAnnouncement(
+          tRef.current.announceAgentReassigned(msg.agentId, msg.backendProfile ?? tRef.current.officialBackend)
+        );
         return;
       }
 
       if (msg.type === "default_backend_profile_changed") {
         setDefaultBackendProfileState(msg.backendProfile);
-        setAnnouncement(`Default backend profile for unassigned agents is now: ${msg.backendProfile ?? "official"}.`);
+        setAnnouncement(
+          tRef.current.announceDefaultBackendChanged(msg.backendProfile ?? tRef.current.officialBackend)
+        );
         return;
       }
 
@@ -148,14 +143,14 @@ export default function App() {
           )
         );
         setAnnouncement(
-          `${msg.agentId} is now ${msg.state.replaceAll("_", " ")}${msg.taskId ? ` on task ${msg.taskId}` : ""}.`
+          tRef.current.announceAgentStateChanged(msg.agentId, tRef.current.agentStateLabel(msg.state), msg.taskId)
         );
         return;
       }
 
       if (msg.type === "task_updated") {
         setTasksById((prev) => ({ ...prev, [msg.task.id]: msg.task }));
-        setAnnouncement(`Task ${msg.task.title} is now ${msg.task.status.replaceAll("_", " ")}.`);
+        setAnnouncement(tRef.current.announceTaskUpdated(msg.task.title, tRef.current.taskStatusLabel(msg.task.status)));
         return;
       }
 
@@ -179,7 +174,7 @@ export default function App() {
           },
           ...prev,
         ]);
-        setAnnouncement(`Task ${msg.taskId} completed by ${msg.agentId}. ${msg.summary}`);
+        setAnnouncement(tRef.current.announceTaskCompleted(msg.taskId, msg.agentId, msg.summary));
         return;
       }
 
@@ -209,7 +204,17 @@ export default function App() {
           }, 6000);
         }
         setAnnouncement(
-          `${msg.securityViolation ? "Security failure" : msg.authFailure ? "Authentication failure" : msg.backendProfileError ? "Backend profile error" : "Task failure"}: ${msg.taskId}, ${msg.reason}`
+          tRef.current.announceTaskFailed(
+            msg.securityViolation
+              ? "security"
+              : msg.authFailure
+                ? "auth"
+                : msg.backendProfileError
+                  ? "backend"
+                  : "generic",
+            msg.taskId,
+            msg.reason
+          )
         );
         return;
       }
@@ -225,7 +230,7 @@ export default function App() {
             createdAt: Date.now(),
           },
         }));
-        setAnnouncement(`Master is planning the goal: ${msg.goal}.`);
+        setAnnouncement(tRef.current.announceGoalPlanning(msg.goal));
         return;
       }
 
@@ -234,7 +239,7 @@ export default function App() {
           ...prev,
           [msg.goalId]: { ...prev[msg.goalId], status: "planned", taskCount: msg.taskCount },
         }));
-        setAnnouncement(`Master planned ${msg.taskCount} subtasks for ${msg.goal}. Dispatching now.`);
+        setAnnouncement(tRef.current.announceGoalPlanned(msg.taskCount, msg.goal));
         return;
       }
 
@@ -243,9 +248,7 @@ export default function App() {
           ...prev,
           [msg.goalId]: { ...prev[msg.goalId], status: "failed", reason: msg.reason, authFailure: msg.authFailure },
         }));
-        setAnnouncement(
-          `Master planning failed for ${msg.goal}${msg.authFailure ? " (subscription login or usage limit)" : ""}: ${msg.reason}`
-        );
+        setAnnouncement(tRef.current.announceGoalFailed(msg.goal, msg.reason, Boolean(msg.authFailure)));
         return;
       }
 
@@ -254,7 +257,7 @@ export default function App() {
           ...prev,
           [msg.goalId]: { ...prev[msg.goalId], status: "summarized", summary: msg.summary },
         }));
-        setAnnouncement(`Master summary ready for ${msg.goal}: ${msg.summary}`);
+        setAnnouncement(tRef.current.announceGoalSummary(msg.goal, msg.summary));
       }
     });
 
@@ -282,7 +285,7 @@ export default function App() {
     () =>
       Object.values(tasksById)
         .filter(
-          (t) => t.status === "pending" || t.status === "blocked" || t.status === "blocked_failed_dependency"
+          (task) => task.status === "pending" || task.status === "blocked" || task.status === "blocked_failed_dependency"
         )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [tasksById]
@@ -292,7 +295,7 @@ export default function App() {
 
   const availableCredentialCount = credentialStatuses.filter((s) => s.available).length;
   const credentialStatusLabel = credentialStatuses
-    .map((status) => `${status.provider} ${status.id}: ${status.available ? "available" : "unavailable"}`)
+    .map((status) => t.credentialDetailLine(status.provider, status.id, status.available))
     .join(". ");
 
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
@@ -332,26 +335,29 @@ export default function App() {
   return (
     <div className="app">
       <a className="skip-link" href="#main-content">
-        Skip to task controls
+        {t.skipToTaskControls}
       </a>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
       <header className="app-header">
-        <h1>AI Office — Vertical Slice</h1>
-        <button type="button" className="bp-open-button" onClick={() => setBackendPanelOpen(true)}>
-          Backend &amp; Credentials
-        </button>
-        {credentialStatuses.length > 0 && (
-          <div
-            className={`credential-pill ${availableCredentialCount === 0 ? "credential-pill-none" : ""}`}
-            title={credentialStatuses.map((s) => `${s.provider}/${s.id}: ${s.available ? "available" : "unavailable"}`).join("\n")}
-            aria-label={`Credentials: ${availableCredentialCount} of ${credentialStatuses.length} available. ${credentialStatusLabel}`}
-          >
-            <span className="credential-pill-dot" aria-hidden="true" />
-            Credentials: {availableCredentialCount}/{credentialStatuses.length} available
-          </div>
-        )}
+        <h1>{t.appTitle}</h1>
+        <div className="app-header-actions">
+          <button type="button" className="bp-open-button" onClick={() => setBackendPanelOpen(true)}>
+            {t.backendCredentials}
+          </button>
+          {credentialStatuses.length > 0 && (
+            <div
+              className={`credential-pill ${availableCredentialCount === 0 ? "credential-pill-none" : ""}`}
+              title={credentialStatuses.map((s) => t.credentialDetailLine(s.provider, s.id, s.available)).join("\n")}
+              aria-label={t.credentialsAriaLabel(availableCredentialCount, credentialStatuses.length, credentialStatusLabel)}
+            >
+              <span className="credential-pill-dot" aria-hidden="true" />
+              {t.credentialsPill(availableCredentialCount, credentialStatuses.length)}
+            </div>
+          )}
+          <LanguageToggle />
+        </div>
       </header>
 
       <div className="app-body">
@@ -366,14 +372,14 @@ export default function App() {
 
           <form className="task-form goal-form" onSubmit={handleGoalSubmit} aria-labelledby="goal-form-heading">
             <h2 id="goal-form-heading" className="form-heading">
-              High-level goal (Master plans it for you)
+              {t.goalFormHeading}
             </h2>
             <label className="sr-only" htmlFor="goal-description">
-              High-level goal
+              {t.goalDescriptionLabel}
             </label>
             <textarea
               id="goal-description"
-              placeholder="e.g. Add an install section to README.md, and add a simple string-utils test in utils/"
+              placeholder={t.goalDescriptionPlaceholder}
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
               aria-invalid={Boolean(goalFormError)}
@@ -382,12 +388,12 @@ export default function App() {
               required
             />
             <label className="sr-only" htmlFor="goal-workspace-path">
-              Goal workspace folder path
+              {t.goalWorkspaceLabel}
             </label>
             <input
               id="goal-workspace-path"
               type="text"
-              placeholder="Local folder path (shared by every subtask), e.g. /home/you/some-project"
+              placeholder={t.goalWorkspacePlaceholder}
               value={goalWorkspacePath}
               onChange={(e) => setGoalWorkspacePath(e.target.value)}
               aria-invalid={Boolean(goalFormError)}
@@ -395,7 +401,7 @@ export default function App() {
               required
             />
             <button type="submit" disabled={goalSubmitting}>
-              {goalSubmitting ? "Sending to Master…" : "Ask Master to plan & dispatch"}
+              {goalSubmitting ? t.goalSubmitting : t.goalSubmit}
             </button>
             {goalFormError && (
               <div id="goal-form-error" className="form-error" role="alert">
@@ -405,23 +411,21 @@ export default function App() {
           </form>
 
           {goalsSorted.length > 0 && (
-            <section className="goal-panel" aria-label="Master planning status">
+            <section className="goal-panel" aria-label={t.goalFormHeading}>
               {goalsSorted.map((g) => (
                 <article key={g.goalId} className="goal-card" style={{ borderLeftColor: goalColor(g.goalId) }}>
                   <div className="goal-card-header">
                     <span className="goal-card-dot" style={{ background: goalColor(g.goalId) }} aria-hidden="true" />
                     <strong>{g.goal}</strong>
                   </div>
-                  {g.status === "planning" && <div className="goal-card-status">Master is planning…</div>}
+                  {g.status === "planning" && <div className="goal-card-status">{t.goalPlanningStatus}</div>}
                   {g.status === "planned" && (
-                    <div className="goal-card-status">
-                      Planned {g.taskCount} subtask{g.taskCount === 1 ? "" : "s"} — dispatching…
-                    </div>
+                    <div className="goal-card-status">{t.goalPlannedStatus(g.taskCount ?? 0)}</div>
                   )}
                   {g.status === "failed" && (
                     <div className={`goal-card-status goal-card-status-fail ${g.authFailure ? "goal-card-status-auth" : ""}`}>
                       <span aria-hidden="true">{g.authFailure ? "🔑 " : "⚠ "}</span>
-                      Master planning failed{g.authFailure ? " (authentication)" : ""}: {g.reason}
+                      {t.goalFailedStatus(g.reason ?? "", Boolean(g.authFailure))}
                     </div>
                   )}
                   {g.status === "summarized" && <div className="goal-card-summary">{g.summary}</div>}
@@ -432,14 +436,14 @@ export default function App() {
 
           <form className="task-form" onSubmit={handleSubmit} aria-labelledby="task-form-heading">
             <h2 id="task-form-heading" className="form-heading">
-              Manual task (pick capabilities yourself)
+              {t.taskFormHeading}
             </h2>
             <label className="sr-only" htmlFor="task-description">
-              Manual task description
+              {t.taskDescriptionLabel}
             </label>
             <textarea
               id="task-description"
-              placeholder="Task description, e.g. Add a project intro section to README.md"
+              placeholder={t.taskDescriptionPlaceholder}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               aria-invalid={Boolean(formError)}
@@ -448,12 +452,12 @@ export default function App() {
               required
             />
             <label className="sr-only" htmlFor="task-workspace-path">
-              Task workspace folder path
+              {t.taskWorkspaceLabel}
             </label>
             <input
               id="task-workspace-path"
               type="text"
-              placeholder="Local folder path, e.g. /home/you/some-project"
+              placeholder={t.taskWorkspacePlaceholder}
               value={workspacePath}
               onChange={(e) => setWorkspacePath(e.target.value)}
               aria-invalid={Boolean(formError)}
@@ -461,7 +465,7 @@ export default function App() {
               required
             />
             <fieldset className="capability-picker">
-              <legend className="capability-picker-label">Required capabilities:</legend>
+              <legend className="capability-picker-label">{t.requiredCapabilities}</legend>
               {KNOWN_CAPABILITIES.map((cap) => (
                 <label key={cap} className="capability-checkbox">
                   <input
@@ -469,12 +473,12 @@ export default function App() {
                     checked={requiredCapabilities.includes(cap)}
                     onChange={() => toggleCapability(cap)}
                   />
-                  {cap}
+                  {t.capabilityLabel(cap)}
                 </label>
               ))}
             </fieldset>
             <button type="submit" disabled={submitting}>
-              {submitting ? "Dispatching…" : "Dispatch task"}
+              {submitting ? t.taskSubmitting : t.taskSubmit}
             </button>
             {formError && (
               <div id="task-form-error" className="form-error" role="alert">
@@ -485,83 +489,74 @@ export default function App() {
 
           <section className="completions" aria-labelledby="completion-heading">
             <h2 id="completion-heading" className="sr-only">
-              Task results
+              {t.taskResultsHeading}
             </h2>
             {completions.map((c) => {
               const goalId = tasksById[c.taskId]?.goalId;
+              const kind = c.ok ? "ok" : c.securityViolation ? "security" : c.authFailure ? "auth" : c.backendProfileError ? "backend" : "fail";
               return (
-                <article
-                  key={c.key}
-                  className={`completion-card ${c.ok ? "ok" : c.securityViolation ? "security" : c.authFailure ? "auth" : c.backendProfileError ? "backend" : "fail"}`}
-                >
+                <article key={c.key} className={`completion-card ${kind}`}>
                   {goalId && (
                     <span className="goal-card-dot" style={{ background: goalColor(goalId) }} aria-hidden="true" />
                   )}
                   <span className="status-icon" aria-hidden="true">
                     {c.ok ? "✓" : c.securityViolation ? "⚠" : c.authFailure ? "🔑" : c.backendProfileError ? "⚙" : "✕"}
                   </span>{" "}
-                  <strong>
-                    {c.ok
-                      ? "Task completed"
-                      : c.securityViolation
-                        ? "Security failure: workspace isolation violation"
-                        : c.authFailure
-                          ? "Authentication failure"
-                          : c.backendProfileError
-                            ? "Backend profile error"
-                            : "Task failed"}
-                  </strong>
+                  <strong>{t.completionTitle(kind)}</strong>
                   <div>{c.summary}</div>
-                  <div className="completion-meta">
-                    agent: {c.agentId}
-                    {c.filesChanged.length > 0 && <> · files: {c.filesChanged.join(", ")}</>}
-                  </div>
+                  <div className="completion-meta">{t.completionMeta(c.agentId, c.filesChanged)}</div>
                 </article>
               );
             })}
           </section>
         </main>
 
-        <aside className={`detail-panel ${selectedAgent ? "open" : ""}`} aria-label="Agent details">
+        <aside className={`detail-panel ${selectedAgent ? "open" : ""}`} aria-label={t.agentDetailsAriaLabel}>
           {selectedAgent && (
             <>
               <h2>{selectedAgent.id}</h2>
               <dl>
-                <dt>Runtime</dt>
-                <dd>{RUNTIME_LABELS[selectedAgent.runtime] ?? selectedAgent.runtime}</dd>
+                <dt>{t.detailRuntime}</dt>
+                <dd>{t.runtimeLabel(selectedAgent.runtime)}</dd>
                 {selectedAgent.runtime === "claude-code" && (
                   <>
-                    <dt>Backend</dt>
+                    <dt>{t.detailBackend}</dt>
                     <dd>
                       {selectedAgent.backendProfile && selectedAgent.backendProfile !== "official"
                         ? (backendProfiles.find((p) => p.id === selectedAgent.backendProfile)?.label ?? selectedAgent.backendProfile)
-                        : "Official (Anthropic)"}
+                        : t.officialBackend}
                     </dd>
-                    <dt>API format</dt>
+                    <dt>{t.detailApiFormat}</dt>
                     <dd>
                       {selectedAgent.backendProfile && selectedAgent.backendProfile !== "official"
                         ? (() => {
                             const format = backendProfiles.find((p) => p.id === selectedAgent.backendProfile)?.apiFormat;
-                            return format ? (API_FORMAT_LABELS[format] ?? format) : "unknown (profile not registered)";
+                            return format ? t.apiFormatLabel(format) : t.apiFormatUnknown;
                           })()
-                        : API_FORMAT_LABELS.anthropic}
+                        : t.apiFormatLabel("anthropic")}
                     </dd>
                   </>
                 )}
-                <dt>State</dt>
-                <dd>{selectedAgent.state}</dd>
-                <dt>Task</dt>
-                <dd>{selectedAgent.currentTaskId ?? "—"}</dd>
-                <dt>Workspace</dt>
-                <dd>{selectedAgent.workspace?.path ?? "—"}</dd>
-                <dt>Eligible for</dt>
+                <dt>{t.detailState}</dt>
+                <dd>{t.agentStateLabel(selectedAgent.state)}</dd>
+                <dt>{t.detailTask}</dt>
+                <dd>{selectedAgent.currentTaskId ?? t.emptyValue}</dd>
+                <dt>{t.detailWorkspace}</dt>
+                <dd>{selectedAgent.workspace?.path ?? t.emptyValue}</dd>
+                <dt>{t.detailEligibleFor}</dt>
                 <dd>
-                  {selectedAgent.eligibleCapabilities.length > 0 ? selectedAgent.eligibleCapabilities.join(", ") : "—"}
+                  {selectedAgent.eligibleCapabilities.length > 0
+                    ? selectedAgent.eligibleCapabilities.map((cap) => t.capabilityLabel(cap)).join(", ")
+                    : t.emptyValue}
                 </dd>
-                <dt>Granted now</dt>
-                <dd>{selectedAgent.capabilities.length > 0 ? selectedAgent.capabilities.join(", ") : "—"}</dd>
+                <dt>{t.detailGrantedNow}</dt>
+                <dd>
+                  {selectedAgent.capabilities.length > 0
+                    ? selectedAgent.capabilities.map((cap) => t.capabilityLabel(cap)).join(", ")
+                    : t.emptyValue}
+                </dd>
               </dl>
-              <h3>Live CLI output</h3>
+              <h3>{t.liveCliOutput}</h3>
               <div className="cli-log">
                 {(logsByAgent[selectedAgent.id] ?? []).map((line, i) => (
                   <div key={i} className="cli-log-line">
@@ -574,8 +569,8 @@ export default function App() {
         </aside>
 
         <aside className="queue-panel" aria-labelledby="queue-heading">
-          <h2 id="queue-heading">Queue ({queueItems.length})</h2>
-          {queueItems.length === 0 && <div className="queue-empty">No tasks waiting for an agent.</div>}
+          <h2 id="queue-heading">{t.queueHeading(queueItems.length)}</h2>
+          {queueItems.length === 0 && <div className="queue-empty">{t.queueEmpty}</div>}
           {queueItems.length > 0 && (
             <ol className="queue-list">
               {queueItems.map((task) => {
@@ -587,23 +582,22 @@ export default function App() {
                     style={task.goalId ? { borderLeftColor: goalColor(task.goalId), borderLeftWidth: 3 } : undefined}
                   >
                     <div className="queue-item-title">{task.title}</div>
-                    <div className="queue-item-meta">
-                      needs: {task.requiredCapabilities.length > 0 ? task.requiredCapabilities.join(", ") : "any"}
-                    </div>
+                    <div className="queue-item-meta">{t.queueNeeds(task.requiredCapabilities.map((cap) => t.capabilityLabel(cap)))}</div>
                     {task.status === "pending" && (
                       <div className="queue-item-meta">
-                        <strong>⌛ Pending</strong> — waiting{" "}
-                        {Math.max(0, Math.round((now - new Date(task.createdAt).getTime()) / 1000))}s
+                        <strong>{t.queuePendingLabel}</strong>{" "}
+                        {t.queuePendingDetail(Math.max(0, Math.round((now - new Date(task.createdAt).getTime()) / 1000)))}
                       </div>
                     )}
                     {task.status === "blocked" && (
                       <div className="queue-item-meta queue-item-tag-blocked">
-                        <strong>⏸ Blocked</strong> — waiting on: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
+                        <strong>{t.queueBlockedLabel}</strong> {t.queueBlockedDetail(depTitles)}
                       </div>
                     )}
                     {task.status === "blocked_failed_dependency" && (
                       <div className="queue-item-meta queue-item-tag-blocked-failed">
-                        <strong>✕ Blocked — dependency failed</strong>: {depTitles.length > 0 ? depTitles.join(", ") : "a prior task"}
+                        <strong>{t.queueBlockedFailedLabel}</strong>
+                        {t.queueBlockedFailedDetail(depTitles)}
                       </div>
                     )}
                   </li>

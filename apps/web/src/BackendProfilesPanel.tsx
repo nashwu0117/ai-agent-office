@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Agent, BackendProfileClientInfo, CredentialSourceStatus } from "@ai-office/core";
 import { createBackendProfile, setAgentBackendProfile, setDefaultBackendProfile, updateBackendProfile } from "./ws/client.js";
+import { useLanguage } from "./i18n/language-context.js";
 
 // v0.10: Credential / Backend Profile management panel — the UI Part A of
 // the v0.10 build prompt calls for, replacing "check the startup log or
@@ -52,6 +53,7 @@ export function BackendProfilesPanel({
   defaultBackendProfile,
   agents,
 }: Props) {
+  const { t } = useLanguage();
   const [newProfile, setNewProfile] = useState<NewProfileForm>(EMPTY_NEW_PROFILE);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -149,57 +151,55 @@ export function BackendProfilesPanel({
     <div className="bp-overlay" role="dialog" aria-modal="true" aria-labelledby="bp-panel-heading">
       <div className="bp-panel">
         <div className="bp-panel-header">
-          <h2 id="bp-panel-heading">Backend &amp; Credentials</h2>
-          <button type="button" className="bp-close" onClick={onClose} aria-label="Close backend and credentials panel">
+          <h2 id="bp-panel-heading">{t.backendCredentials}</h2>
+          <button type="button" className="bp-close" onClick={onClose} aria-label={t.closeBackendPanel}>
             ✕
           </button>
         </div>
 
         <section className="bp-section" aria-labelledby="bp-master-heading">
-          <h3 id="bp-master-heading">Master Brain</h3>
+          <h3 id="bp-master-heading">{t.masterBrainHeading}</h3>
           <div className="bp-master-mode">
             <div>
-              <strong>Claude subscription login</strong>
+              <strong>{t.claudeSubscriptionLogin}</strong>
               <p>
-                Runs <code>claude -p</code> in headless mode using the Claude Code CLI&apos;s existing Claude.ai
-                Pro/Max login session.
+                {t.masterBrainDescBefore}
+                <code>claude -p</code>
+                {t.masterBrainDescAfter}
               </p>
             </div>
             <span className={`bp-status-pill ${masterCliSession?.available ? "bp-status-ok" : "bp-status-bad"}`}>
-              {masterCliSession?.available ? "CLI session configured" : "CLI session unavailable"}
+              {masterCliSession?.available ? t.cliSessionConfigured : t.cliSessionUnavailable}
             </span>
           </div>
           <dl className="bp-master-details">
             <div>
-              <dt>Authentication</dt>
-              <dd>Claude.ai subscription session (OAuth)</dd>
+              <dt>{t.authenticationLabel}</dt>
+              <dd>{t.authenticationValue}</dd>
             </div>
             <div>
-              <dt>Console API key</dt>
-              <dd>Not used</dd>
+              <dt>{t.consoleApiKeyLabel}</dt>
+              <dd>{t.notUsed}</dd>
             </div>
             <div>
-              <dt>Structured output</dt>
-              <dd>CLI JSON + JSON Schema</dd>
+              <dt>{t.structuredOutputLabel}</dt>
+              <dd>{t.structuredOutputValue}</dd>
             </div>
           </dl>
         </section>
 
         <section className="bp-section" aria-labelledby="bp-credentials-heading">
-          <h3 id="bp-credentials-heading">Credential sources</h3>
-          <p className="bp-hint">
-            Runtime-agent credential sources only. Values themselves are never shown here — only whether a source
-            looks usable. Master Brain is subscription-only as shown above and never reads these API-key sources.
-          </p>
+          <h3 id="bp-credentials-heading">{t.credentialSourcesHeading}</h3>
+          <p className="bp-hint">{t.credentialSourcesHint}</p>
           {credentialStatuses.length === 0 ? (
-            <div className="bp-empty">No credential sources detected.</div>
+            <div className="bp-empty">{t.noCredentialSources}</div>
           ) : (
             <table className="bp-table">
               <thead>
                 <tr>
-                  <th>Provider</th>
-                  <th>Source id</th>
-                  <th>Status</th>
+                  <th>{t.colProvider}</th>
+                  <th>{t.colSourceId}</th>
+                  <th>{t.colStatus}</th>
                 </tr>
               </thead>
               <tbody>
@@ -209,7 +209,7 @@ export function BackendProfilesPanel({
                     <td>{s.id}</td>
                     <td>
                       <span className={`bp-status-pill ${s.available ? "bp-status-ok" : "bp-status-bad"}`}>
-                        {s.available ? "Available" : "Unavailable"}
+                        {s.available ? t.available : t.unavailable}
                       </span>
                     </td>
                   </tr>
@@ -220,25 +220,25 @@ export function BackendProfilesPanel({
         </section>
 
         <section className="bp-section" aria-labelledby="bp-profiles-heading">
-          <h3 id="bp-profiles-heading">Backend profiles</h3>
+          <h3 id="bp-profiles-heading">{t.backendProfilesHeading}</h3>
           <p className="bp-hint">
-            Each profile points a claude-code agent at a different API backend. Only the environment variable{" "}
-            <em>names</em> are configured here — set the actual base URL/token as environment variables on this
-            server before an agent using this profile can run a task.
+            {t.backendProfilesHintBefore}
+            <em>{t.backendProfilesHintEm}</em>
+            {t.backendProfilesHintAfter}
           </p>
           {backendProfiles.length === 0 ? (
-            <div className="bp-empty">No backend profiles registered yet.</div>
+            <div className="bp-empty">{t.noBackendProfiles}</div>
           ) : (
             <table className="bp-table">
               <thead>
                 <tr>
-                  <th>Id</th>
-                  <th>Label</th>
-                  <th>API format</th>
-                  <th>Base URL env var</th>
-                  <th>Auth token env var</th>
-                  <th>Model override env var</th>
-                  <th>Status</th>
+                  <th>{t.colId}</th>
+                  <th>{t.colLabel}</th>
+                  <th>{t.colApiFormat}</th>
+                  <th>{t.colBaseUrlEnvVar}</th>
+                  <th>{t.colAuthTokenEnvVar}</th>
+                  <th>{t.colModelOverrideEnvVar}</th>
+                  <th>{t.colStatus}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -249,13 +249,13 @@ export function BackendProfilesPanel({
                       <td colSpan={8}>
                         <form className="bp-edit-form" onSubmit={handleSaveEdit}>
                           <input
-                            aria-label="Label"
+                            aria-label={t.labelFieldLabel}
                             value={editDraft.label}
                             onChange={(e) => setEditDraft({ ...editDraft, label: e.target.value })}
                             required
                           />
                           <select
-                            aria-label="API format"
+                            aria-label={t.apiFormatFieldLabel}
                             value={editDraft.apiFormat}
                             onChange={(e) => setEditDraft({ ...editDraft, apiFormat: e.target.value })}
                           >
@@ -266,25 +266,25 @@ export function BackendProfilesPanel({
                             ))}
                           </select>
                           <input
-                            aria-label="Base URL environment variable name"
+                            aria-label={t.baseUrlEnvVarFieldLabel}
                             value={editDraft.baseUrlEnvVar}
                             onChange={(e) => setEditDraft({ ...editDraft, baseUrlEnvVar: e.target.value })}
                             required
                           />
                           <input
-                            aria-label="Auth token environment variable name"
+                            aria-label={t.authTokenEnvVarFieldLabel}
                             value={editDraft.authTokenEnvVar}
                             onChange={(e) => setEditDraft({ ...editDraft, authTokenEnvVar: e.target.value })}
                             required
                           />
                           <input
-                            aria-label="Model override environment variable name (optional)"
-                            placeholder="optional, e.g. AI_OFFICE_NVIDIA_MODEL"
+                            aria-label={t.modelOverrideEnvVarFieldLabel}
+                            placeholder={t.modelOverrideEnvVarPlaceholder}
                             value={editDraft.modelOverrideEnvVar}
                             onChange={(e) => setEditDraft({ ...editDraft, modelOverrideEnvVar: e.target.value })}
                           />
                           <button type="submit" disabled={saving}>
-                            {saving ? "Saving…" : "Save"}
+                            {saving ? t.savingButton : t.saveButton}
                           </button>
                           <button
                             type="button"
@@ -294,7 +294,7 @@ export function BackendProfilesPanel({
                               setEditError(null);
                             }}
                           >
-                            Cancel
+                            {t.cancelButton}
                           </button>
                           {editError && (
                             <div className="bp-form-error" role="alert">
@@ -318,12 +318,12 @@ export function BackendProfilesPanel({
                       <td>{p.modelOverrideEnvVar ? <code>{p.modelOverrideEnvVar}</code> : <span className="bp-hint">—</span>}</td>
                       <td>
                         <span className={`bp-status-pill ${p.available ? "bp-status-ok" : "bp-status-bad"}`}>
-                          {p.available ? "Ready" : "Missing env var(s)"}
+                          {p.available ? t.profileReady : t.profileMissingEnvVars}
                         </span>
                       </td>
                       <td>
                         <button type="button" onClick={() => startEdit(p)}>
-                          Edit
+                          {t.editButton}
                         </button>
                       </td>
                     </tr>
@@ -333,29 +333,29 @@ export function BackendProfilesPanel({
             </table>
           )}
 
-          <form className="bp-new-form" onSubmit={handleCreate} aria-label="Add a new backend profile">
-            <h4>Add a new backend profile</h4>
+          <form className="bp-new-form" onSubmit={handleCreate} aria-label={t.addNewProfileHeading}>
+            <h4>{t.addNewProfileHeading}</h4>
             <div className="bp-new-form-grid">
               <label>
-                Id
+                {t.idFieldLabel}
                 <input
-                  placeholder="e.g. my-provider"
+                  placeholder={t.idFieldPlaceholder}
                   value={newProfile.id}
                   onChange={(e) => setNewProfile({ ...newProfile, id: e.target.value })}
                   required
                 />
               </label>
               <label>
-                Label
+                {t.labelFieldLabel}
                 <input
-                  placeholder="e.g. My Provider API"
+                  placeholder={t.labelFieldPlaceholder}
                   value={newProfile.label}
                   onChange={(e) => setNewProfile({ ...newProfile, label: e.target.value })}
                   required
                 />
               </label>
               <label>
-                API format
+                {t.apiFormatFieldLabel}
                 <select
                   value={newProfile.apiFormat}
                   onChange={(e) => setNewProfile({ ...newProfile, apiFormat: e.target.value })}
@@ -368,34 +368,34 @@ export function BackendProfilesPanel({
                 </select>
               </label>
               <label>
-                Base URL env var name
+                {t.baseUrlEnvVarFieldLabel}
                 <input
-                  placeholder="e.g. AI_OFFICE_BACKEND_MY_PROVIDER_BASE_URL"
+                  placeholder={t.baseUrlEnvVarPlaceholder}
                   value={newProfile.baseUrlEnvVar}
                   onChange={(e) => setNewProfile({ ...newProfile, baseUrlEnvVar: e.target.value })}
                   required
                 />
               </label>
               <label>
-                Auth token env var name
+                {t.authTokenEnvVarFieldLabel}
                 <input
-                  placeholder="e.g. AI_OFFICE_BACKEND_MY_PROVIDER_AUTH_TOKEN"
+                  placeholder={t.authTokenEnvVarPlaceholder}
                   value={newProfile.authTokenEnvVar}
                   onChange={(e) => setNewProfile({ ...newProfile, authTokenEnvVar: e.target.value })}
                   required
                 />
               </label>
               <label>
-                Model override env var name (optional)
+                {t.modelOverrideEnvVarFieldLabel}
                 <input
-                  placeholder="optional — e.g. AI_OFFICE_BACKEND_MY_PROVIDER_MODEL"
+                  placeholder={t.newModelOverrideEnvVarPlaceholder}
                   value={newProfile.modelOverrideEnvVar}
                   onChange={(e) => setNewProfile({ ...newProfile, modelOverrideEnvVar: e.target.value })}
                 />
               </label>
             </div>
             <button type="submit" disabled={creating}>
-              {creating ? "Adding…" : "Add profile"}
+              {creating ? t.addingButton : t.addProfileButton}
             </button>
             {createError && (
               <div className="bp-form-error" role="alert">
@@ -406,21 +406,17 @@ export function BackendProfilesPanel({
         </section>
 
         <section className="bp-section" aria-labelledby="bp-default-heading">
-          <h3 id="bp-default-heading">Default backend for unassigned agents</h3>
-          <p className="bp-hint">
-            Applies only to a claude-code agent with no individual assignment below and no hardcoded default of its
-            own — it never overrides either of those. Persisted, and takes effect immediately for every agent that
-            currently qualifies (each one's row below updates to match), with no restart needed.
-          </p>
+          <h3 id="bp-default-heading">{t.defaultBackendHeading}</h3>
+          <p className="bp-hint">{t.defaultBackendHint}</p>
           <label className="bp-default-select">
-            Default backend profile
+            {t.defaultBackendProfileFieldLabel}
             <select
-              aria-label="Default backend profile for unassigned agents"
+              aria-label={t.defaultBackendProfileFieldLabel}
               value={defaultBackendProfile ?? "official"}
               disabled={settingDefault}
               onChange={(e) => handleSetDefault(e.target.value)}
             >
-              <option value="official">Official (Anthropic)</option>
+              <option value="official">{t.officialBackend}</option>
               {backendProfiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -436,32 +432,29 @@ export function BackendProfilesPanel({
         </section>
 
         <section className="bp-section" aria-labelledby="bp-agents-heading">
-          <h3 id="bp-agents-heading">Agent → backend assignment</h3>
-          <p className="bp-hint">
-            Only claude-code agents read a backend profile. Changing this takes effect starting with that agent's
-            next dispatched task — no restart needed.
-          </p>
+          <h3 id="bp-agents-heading">{t.agentAssignmentHeading}</h3>
+          <p className="bp-hint">{t.agentAssignmentHint}</p>
           <table className="bp-table">
             <thead>
               <tr>
-                <th>Agent</th>
-                <th>Runtime</th>
-                <th>Backend profile</th>
+                <th>{t.colAgent}</th>
+                <th>{t.detailRuntime}</th>
+                <th>{t.colBackendProfile}</th>
               </tr>
             </thead>
             <tbody>
               {agents.map((agent) => (
                 <tr key={agent.id}>
                   <td>{agent.id}</td>
-                  <td>{agent.runtime}</td>
+                  <td>{t.runtimeLabel(agent.runtime)}</td>
                   <td>
                     <select
-                      aria-label={`Backend profile for ${agent.id}`}
+                      aria-label={t.backendProfileForAgentAriaLabel(agent.id)}
                       value={agent.backendProfile ?? "official"}
                       disabled={agent.runtime !== "claude-code" || assigningAgentId === agent.id}
                       onChange={(e) => handleReassign(agent.id, e.target.value)}
                     >
-                      <option value="official">Official (Anthropic)</option>
+                      <option value="official">{t.officialBackend}</option>
                       {backendProfiles.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.label}

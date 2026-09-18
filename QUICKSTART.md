@@ -1,5 +1,7 @@
 # Quickstart
 
+_English version. The web UI itself is bilingual (Traditional Chinese / English, toggle in the top-right corner) as of v0.17 — this document is English-only._
+
 One page to get back into this project without asking anyone anything.
 Everything here is current as of v0.14. For the full feature list and
 architecture, see [`README.md`](./README.md).
