@@ -242,6 +242,7 @@ export interface Translations {
   masterModelFieldLabel: (id: string) => string;
   masterModelPlaceholder: (id: string) => string;
   masterModelSaved: string;
+  masterModelListHint: string;
 
   // v0.22 Part C: meeting-room handoff visualization + click-to-view transcript.
   meetingRoomStatusBusy: string;
@@ -601,6 +602,8 @@ const en: Translations = {
   masterModelPlaceholder: (id) =>
     id === "codex" ? "e.g. gpt-5-codex — leave blank for the CLI's own default" : "e.g. sonnet, opus — leave blank for the CLI's own default",
   masterModelSaved: "Saved — the next plan()/summarize() call will use this model.",
+  masterModelListHint:
+    "\"—\" means no --model flag (the CLI's own default). These lists aren't a live/complete catalog — Claude Code's three come from `claude --help`'s own --model documentation; Codex's two are the model ids actually present in this machine's ~/.codex/config.toml.",
 
   meetingRoomStatusBusy: "In session",
   meetingRoomStatusIdle: "Idle",
@@ -870,6 +873,8 @@ const zhTW: Translations = {
   masterModelFieldLabel: (id) => `${id === "codex" ? "Codex CLI" : "Claude Code CLI"} 的模型`,
   masterModelPlaceholder: (id) => (id === "codex" ? "例如 gpt-5-codex——留空則使用 CLI 自己的預設值" : "例如 sonnet、opus——留空則使用 CLI 自己的預設值"),
   masterModelSaved: "已儲存——下一次呼叫 plan()/summarize() 會使用這個模型。",
+  masterModelListHint:
+    "「—」代表不加 --model 參數(用 CLI 自己的預設值)。這份清單不是即時或完整的型錄——Claude Code 的三個選項來自 claude --help 自己文件裡列出的 --model 別名;Codex 的兩個是這台機器 ~/.codex/config.toml 裡實際出現過的模型 id。",
 
   meetingRoomStatusBusy: "會議進行中",
   meetingRoomStatusIdle: "空閒中",

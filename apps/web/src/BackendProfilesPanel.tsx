@@ -42,6 +42,30 @@ const API_FORMAT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "unset", label: "— not selected yet —" },
 ];
 
+/**
+ * v0.22.1: Master's --model dropdown, same "clickable list, not just free
+ * text" UX as the role-model-map fields' Fetch Models button below — but
+ * Master's two CLIs have no baseUrl/authToken to call a real /models
+ * endpoint with, so there is nothing to live-fetch. Sourced from the real
+ * installed CLIs on the operator's own machine rather than guessed:
+ * - claude-code: `claude --help`'s own `--model` doc text lists exactly
+ *   these three aliases ("Provide an alias for the latest model (e.g.
+ *   'fable', 'opus', or 'sonnet')").
+ * - codex: no such enumerated list exists in `codex --help`/`codex exec
+ *   --help` (unlike e.g. --sandbox, which does document
+ *   `[possible values: ...]`) — these two are simply the model ids actually
+ *   present in this machine's own ~/.codex/config.toml (its configured
+ *   default `model`, and the one entry under `[tui.model_availability_nux]`).
+ * Neither list claims to be exhaustive or current on a different machine —
+ * ModelField still shows a currently-saved value even if it isn't one of
+ * these, and the operator can always fall back to editing
+ * apps/server/data/master-brain.json by hand for anything not listed here.
+ */
+const MASTER_MODEL_OPTIONS: Record<"claude-code" | "codex", string[]> = {
+  "claude-code": ["fable", "opus", "sonnet"],
+  codex: ["gpt-5.6-sol", "gpt-6-astra"],
+};
+
 interface LoginProvider {
   id: string;
   labelEn: string;
@@ -132,22 +156,26 @@ function draftFromProfile(p: BackendProfileClientInfo): ProfileDraft {
  * switching to the dropdown never silently discards it.
  */
 function ModelField({
+  id,
   value,
   onChange,
   placeholder,
   models,
+  disabled,
 }: {
+  id?: string;
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
   models: string[] | null;
+  disabled?: boolean;
 }) {
   if (!models) {
-    return <input placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />;
+    return <input id={id} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />;
   }
   const options = value && !models.includes(value) ? [value, ...models] : models;
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}>
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
       <option value="">—</option>
       {options.map((m) => (
         <option key={m} value={m}>
@@ -534,6 +562,7 @@ export function BackendProfilesPanel({
         <section className="bp-section" aria-labelledby="bp-master-heading">
           <h3 id="bp-master-heading">{t.masterBrainHeading}</h3>
           <p className="bp-hint">{t.masterBrainSelectorHint}</p>
+          <p className="bp-hint">{t.masterModelListHint}</p>
           <div className="bp-master-selector" role="radiogroup" aria-labelledby="bp-master-heading">
             {(["claude-code", "codex"] as const).map((id) => {
               const session = id === "claude-code" ? masterCliSession : codexCliSession;
@@ -558,13 +587,13 @@ export function BackendProfilesPanel({
                     <label className="sr-only" htmlFor={`master-model-${id}`}>
                       {t.masterModelFieldLabel(id)}
                     </label>
-                    <input
+                    <ModelField
                       id={`master-model-${id}`}
-                      type="text"
-                      placeholder={t.masterModelPlaceholder(id)}
                       value={modelDrafts[id]}
+                      onChange={(v) => setModelDrafts((s) => ({ ...s, [id]: v }))}
+                      placeholder={t.masterModelPlaceholder(id)}
+                      models={MASTER_MODEL_OPTIONS[id]}
                       disabled={modelSaving[id]}
-                      onChange={(e) => setModelDrafts((s) => ({ ...s, [id]: e.target.value }))}
                     />
                     <button type="button" onClick={() => void handleSaveModel(id)} disabled={modelSaving[id]}>
                       {modelSaving[id] ? t.savingButton : t.saveButton}

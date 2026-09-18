@@ -140,7 +140,8 @@
   padding-left: 1.7rem;
 }
 
-.bp-master-model-row input[type="text"] {
+.bp-master-model-row input[type="text"],
+.bp-master-model-row select {
   flex: 1;
   min-width: 0;
 }
