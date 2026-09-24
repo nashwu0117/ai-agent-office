@@ -75,21 +75,22 @@ it got put behind a Cloudflare Tunnel for outside access.
   # apps/server/.env.local
   AI_OFFICE_ACCESS_PASSWORD=choose-a-real-password-here
   ```
-  Restart the server. Anyone reaching the app through a non-localhost
-  hostname now sees a login screen first; every `/api` route and the
+  Restart the server. Requests outside loopback must log in first; every `/api` route and the
   WebSocket feed refuse to do anything without it. A successful login sets
   an `httpOnly` session cookie good for 30 days; the header's **Log out**
   button (shown only when the gate is active) clears it early.
 - **If you don't set `AI_OFFICE_ACCESS_PASSWORD`: there is no default
-  password.** Every non-localhost request is refused outright (`503`), not
+  password.** Every request outside loopback is refused outright (`503`), not
   silently allowed through. The server says so loudly at startup.
 - `AI_OFFICE_REQUIRE_AUTH=true` forces the login gate even on localhost
   (useful for testing it, or if you'd rather always require a session
-  regardless of `Host`).
+  regardless of the Host header).
 - `AI_OFFICE_ALLOWED_ORIGINS` — comma-separated extra CORS origins, on top
-  of the built-ins (`http://localhost:43118`/`http://127.0.0.1:43118` and
-  this project's own Cloudflare Tunnel hostname,
-  `https://your-tunnel-host.example`, from `~/.cloudflared/config.yml`).
+  of the built-ins (`http://localhost:43118` and
+  `http://127.0.0.1:43118`). Set this to your deployed web origin when
+  accessing the API directly from another origin.
+- `AI_OFFICE_WEB_ALLOWED_HOSTS` — comma-separated hostnames allowed by the
+  Vite dev server when you expose it through a custom domain or tunnel.
   Only needed if you add another hostname later.
 - **Rate limits** on top of the login gate: login attempts (10/15 min),
   task/goal dispatch (30/5 min), backend-profile model listing (30/5 min),
@@ -109,7 +110,7 @@ it got put behind a Cloudflare Tunnel for outside access.
 
 ## 3. What already works, no key required
 
-As of v0.21 there are **13 agents**, across 8 provider slots. Five agents
+The default demo roster has **13 agents** across four CLI runtimes. Five agents
 authenticate through their own CLI's login session — nothing to fill in as
 an env var:
 
@@ -147,7 +148,24 @@ panel (v0.21.1: removed from there since it kept confusing operators who
 aren't touching that code), isn't assigned to any agent, and isn't meant
 for real tasks.
 
-## 4. Connect a provider API
+## 4. Configure the agent fleet
+
+The default demo uses 13 agents. To replace it with your own runtime counts,
+set `AI_OFFICE_AGENT_COUNTS` and (optionally) a process concurrency limit in
+`apps/server/.env.local`, then restart the server:
+
+```dotenv
+AI_OFFICE_AGENT_COUNTS={"claude-code":100,"opencode":25,"cline":25,"codex":50}
+AI_OFFICE_MAX_CONCURRENT_AGENTS=16
+```
+
+This creates 200 agents and runs at most 16 CLI processes simultaneously.
+The supported runtime keys are `claude-code`, `opencode`, `cline`, and
+`codex`; each runtime's CLI must be installed and logged in on the server
+host. Counts can total up to 500. A runtime omitted from the JSON has zero
+agents, so the values describe the complete fleet.
+
+## 5. Connect a provider API
 
 The catalog includes OpenAI, Anthropic Claude, Google Gemini, OpenRouter,
 DeepSeek, Groq, Mistral, xAI Grok, SiliconFlow, Alibaba Cloud Qwen,
@@ -165,7 +183,7 @@ prefilled URL if the provider's console gives you another endpoint. Use
 [`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md) for the
 catalog and endpoint references.
 
-## 5. Dispatching work from the web UI
+## 6. Dispatching work from the web UI
 
 Two ways to hand off work, both feeding the same dispatch/queue/completion
 pipeline:
@@ -187,14 +205,14 @@ limitations below) to open its detail panel and watch raw CLI output
 stream in live. When a task finishes, a completion (or failure) card
 appears at the bottom of the main column.
 
-## 6. Language
+## 7. Language
 
 Click the **EN** / **中文** button in the top-right header to toggle the
 whole UI between English and Traditional Chinese (added in v0.17). It's a
 plain client-side toggle — no restart, no server involvement, and it
 doesn't affect this document (English-only) or any other `.md` file.
 
-## 7. Backend & Credentials panel
+## 8. Backend & Credentials panel
 
 The **Backend & Credentials** button in the header opens a panel with:
 
@@ -223,7 +241,7 @@ The **Backend & Credentials** button in the header opens a panel with:
   each agent's own row in the agent → backend assignment table further down
   the same panel.
 
-## 8. Known limitations
+## 9. Known limitations
 
 - **Freebuff has no adapter.** Its CLI has no headless or API surface at
   all (confirmed twice — see

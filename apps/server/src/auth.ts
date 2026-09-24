@@ -15,13 +15,9 @@ import { loginLimiter } from "./rate-limits.js";
  * 不做" section): one shared password, one cookie, no accounts, no roles.
  *
  * Design choice — what happens with no AI_OFFICE_ACCESS_PASSWORD set:
- * localhost requests (by Host header, not by source IP — see isLocalHostHeader's
- * doc comment for why) keep working exactly as before, unauthenticated, so
- * plain local dev is untouched. Any request whose Host header is NOT
- * localhost/127.0.0.1/::1 is *always* auth-gated once this module is wired
- * in, and if no password has been configured, that gate has no key at all
- * — remote requests are unconditionally refused (503) rather than silently
- * left open behind a made-up default password nobody remembered to change.
+ * plain local dev stays unauthenticated only when both the Host is local and
+ * the TCP peer is loopback. Every other request is auth-gated, and when no
+ * password is configured it is refused (503) rather than silently left open.
  */
 
 const SESSION_COOKIE = "ai_office_session";
@@ -46,20 +42,27 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 }
 
 /**
- * Host-header based, not source-IP based: cloudflared and the Vite dev
- * proxy both run on this same machine, so every tunnel-forwarded request
- * reaches Express with a loopback *socket* address regardless of the real
- * external client — only the Host header (which cloudflared/Vite forward
- * unmodified, see vite.config.ts's allowedHosts comment) distinguishes
- * "someone browsed to the tunnel hostname" from "someone is on localhost".
+ * Local bypass requires both a local Host and a loopback socket peer. A Host
+ * header is caller-controlled and cannot prove that a request is local.
  */
 function isLocalHostHeader(hostHeader: string | undefined): boolean {
   const host = (hostHeader ?? "").split(":")[0].toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "";
 }
 
-function requestNeedsAuth(hostHeader: string | undefined): boolean {
-  return REQUIRE_AUTH_ALWAYS || !isLocalHostHeader(hostHeader);
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address.startsWith("::ffff:") ? address.slice("::ffff:".length) : address;
+  return normalized === "127.0.0.1" || normalized === "::1";
+}
+
+/** A local Host header alone is not proof the connection came from this machine. */
+export function isLocalRequest(hostHeader: string | undefined, remoteAddress: string | undefined): boolean {
+  return isLocalHostHeader(hostHeader) && isLoopbackAddress(remoteAddress);
+}
+
+function requestNeedsAuth(hostHeader: string | undefined, remoteAddress: string | undefined): boolean {
+  return REQUIRE_AUTH_ALWAYS || !isLocalRequest(hostHeader, remoteAddress);
 }
 
 function makeSessionToken(): string {
@@ -98,14 +101,18 @@ function sessionCookieFrom(cookieHeader: string | undefined): string | undefined
   }
 }
 
-function isRequestAuthenticated(hostHeader: string | undefined, cookieHeader: string | undefined): boolean {
-  if (!requestNeedsAuth(hostHeader)) return true;
+function isRequestAuthenticated(
+  hostHeader: string | undefined,
+  cookieHeader: string | undefined,
+  remoteAddress: string | undefined
+): boolean {
+  if (!requestNeedsAuth(hostHeader, remoteAddress)) return true;
   return isValidSessionToken(sessionCookieFrom(cookieHeader));
 }
 
 /** Applied to every /api route registered after it, except the /api/auth/* routes registered earlier — see index.ts's middleware order. */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (isRequestAuthenticated(req.headers.host, req.headers.cookie)) {
+  if (isRequestAuthenticated(req.headers.host, req.headers.cookie, req.socket.remoteAddress)) {
     next();
     return;
   }
@@ -120,7 +127,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
 /** Same check for the raw WebSocket upgrade request — there's no Express `req`/cookie-jar at that point, just the IncomingMessage. */
 export function isUpgradeRequestAuthenticated(req: IncomingMessage): boolean {
-  return isRequestAuthenticated(req.headers.host, req.headers.cookie);
+  return isRequestAuthenticated(req.headers.host, req.headers.cookie, req.socket.remoteAddress);
 }
 
 function cookieIsSecure(req: Request): boolean {
@@ -131,8 +138,8 @@ function cookieIsSecure(req: Request): boolean {
 export function registerAuthRoutes(app: Express): void {
   app.get("/api/auth/status", (req, res) => {
     res.json({
-      authRequired: requestNeedsAuth(req.headers.host),
-      authenticated: isRequestAuthenticated(req.headers.host, req.headers.cookie),
+      authRequired: requestNeedsAuth(req.headers.host, req.socket.remoteAddress),
+      authenticated: isRequestAuthenticated(req.headers.host, req.headers.cookie, req.socket.remoteAddress),
       // Lets the login screen tell "wrong password" apart from "operator hasn't set one up yet" without guessing.
       passwordConfigured: Boolean(ACCESS_PASSWORD),
     });
@@ -173,13 +180,13 @@ export function logAuthStartupState(): void {
   if (REQUIRE_AUTH_ALWAYS) {
     console.log("[ai-office] access auth: AI_OFFICE_REQUIRE_AUTH=true — every request, including localhost, needs a session.");
   } else {
-    console.log("[ai-office] access auth: localhost requests are unauthenticated (dev convenience); any other Host header needs a session.");
+    console.log("[ai-office] access auth: only loopback requests with a localhost Host are unauthenticated; all others need a session.");
   }
   if (!ACCESS_PASSWORD) {
     console.warn(
-      "[ai-office] WARNING: AI_OFFICE_ACCESS_PASSWORD is not set — every non-localhost request (e.g. through the Cloudflare Tunnel) will be refused with 503 until you set it in apps/server/.env.local and restart. There is no default password."
+      "[ai-office] WARNING: AI_OFFICE_ACCESS_PASSWORD is not set — every non-loopback or non-localhost request (e.g. through the Cloudflare Tunnel) will be refused with 503 until you set it in apps/server/.env.local and restart. There is no default password."
     );
   } else {
-    console.log("[ai-office] access auth: AI_OFFICE_ACCESS_PASSWORD is set — non-localhost requests need to log in first.");
+    console.log("[ai-office] access auth: AI_OFFICE_ACCESS_PASSWORD is set — non-local requests need to log in first.");
   }
 }

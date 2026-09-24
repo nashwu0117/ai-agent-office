@@ -51,6 +51,8 @@ export interface OrchestratorOptions {
    * without a protected repo to watch can omit it.
    */
   workspaceGuard?: WorkspaceGuard;
+  /** Maximum scheduled task processes across the fleet; defaults to unlimited for existing embedders. */
+  maxConcurrentTasks?: number;
 }
 
 let counter = 0;
@@ -118,6 +120,7 @@ export class Orchestrator {
   private readonly now: () => string;
   private readonly workspaceLock = new KeyedLock();
   private readonly workspaceGuard?: WorkspaceGuard;
+  private readonly maxConcurrentTasks: number;
 
   constructor(options: OrchestratorOptions) {
     this.adapters = options.adapters;
@@ -125,6 +128,10 @@ export class Orchestrator {
     this.releaseDelayMs = options.releaseDelayMs ?? 1500;
     this.now = options.now ?? (() => new Date().toISOString());
     this.workspaceGuard = options.workspaceGuard;
+    this.maxConcurrentTasks = options.maxConcurrentTasks ?? Number.POSITIVE_INFINITY;
+    if (this.maxConcurrentTasks !== Number.POSITIVE_INFINITY && (!Number.isSafeInteger(this.maxConcurrentTasks) || this.maxConcurrentTasks < 1)) {
+      throw new Error("maxConcurrentTasks must be a positive integer or omitted.");
+    }
   }
 
   registerAgent(agent: Agent): void {
@@ -362,8 +369,12 @@ export class Orchestrator {
     const pending = [...this.tasks.values()]
       .filter((t) => t.status === "pending")
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    let scheduledTasks = [...this.tasks.values()].filter((task) =>
+      task.status === "assigned" || task.status === "waiting" || task.status === "in_progress"
+    ).length;
 
     for (const task of pending) {
+      if (scheduledTasks >= this.maxConcurrentTasks) break;
       const agent = task.pinnedAgentId
         ? this.agents.get(task.pinnedAgentId)
         : [...this.agents.values()].find(
@@ -376,6 +387,7 @@ export class Orchestrator {
       this.setTaskStatus(task, "assigned");
       this.setAgentState(agent, "assigned", task.id);
 
+      scheduledTasks += 1;
       void this.runTask(task, agent);
     }
   }

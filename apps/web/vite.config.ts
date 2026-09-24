@@ -5,16 +5,19 @@ const DEFAULT_SERVER_PORT = 43117;
 const DEFAULT_WEB_PORT = 43118;
 const serverPort = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.VITE_SERVER_PORT ?? DEFAULT_SERVER_PORT);
 const webPort = Number(process.env.AI_OFFICE_WEB_PORT ?? process.env.VITE_PORT ?? DEFAULT_WEB_PORT);
+const extraAllowedHosts = (process.env.AI_OFFICE_WEB_ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: webPort,
     strictPort: true,
-    // v0.13 Cloudflare Tunnel: your-tunnel-host.example (see
-    // ~/.cloudflared/config.yml) forwards to this dev server by Host header,
-    // which Vite's dev server blocks by default unless allow-listed here.
-    allowedHosts: ["your-tunnel-host.example"],
+    // Set AI_OFFICE_WEB_ALLOWED_HOSTS to comma-separated custom deployment
+    // hostnames when exposing the Vite dev server through a tunnel or proxy.
+    allowedHosts: extraAllowedHosts,
     proxy: {
       // v0.19 hotfix: the bare-string shorthand makes Vite's proxy set
       // changeOrigin: true internally (see vite's proxyMiddleware), which

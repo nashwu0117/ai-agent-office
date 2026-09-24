@@ -16,7 +16,7 @@ a workstation, work, and return when done.
 This is a progressively-built vertical slice, not the full product vision.
 So far:
 
-- 13 agents, backed by **four different real CLI backends** — Claude Code,
+- A configurable fleet of up to 500 agents across **four real CLI runtimes** — Claude Code,
   OpenCode, Cline, and Codex — dispatched through a shared `RuntimeAdapter`
   interface (`packages/core/src/runtime/adapter.ts`). Adding a new CLI means
   implementing that interface, not touching the Orchestrator or the UI. (A
@@ -197,12 +197,12 @@ npm run dev:web
 
 ## Using it
 
-1. Open the web UI — you should see 13 agents wandering the Public/Talent
-   Area. `agent-01`/`02` run on Claude Code with the operator's own official
-   subscription; `agent-06`..`13` run on Claude Code and follow the selected
-   default backend until you assign them individually; `agent-03` runs on OpenCode;
-   `agent-04` runs on Codex CLI; and `agent-05` runs on Cline (click an
-   agent to see its `Runtime` in the detail panel).
+1. Open the web UI — the default roster has 13 agents. To configure a larger
+   fleet, set `AI_OFFICE_AGENT_COUNTS` in `apps/server/.env.local` to an exact
+   count per runtime and restart the server. The supported runtime keys are
+   `claude-code`, `opencode`, `cline`, and `codex`, with up to 500 agents in
+   total. `AI_OFFICE_MAX_CONCURRENT_AGENTS` separately limits simultaneously
+   running CLI processes (default 16). See the Quickstart example below.
 2. Fill in a task description, a real local folder path, and optionally
    check which capabilities the task needs (`backend`/`frontend`/`testing`/
    `docs`), then dispatch it. You can dispatch several tasks back to back —

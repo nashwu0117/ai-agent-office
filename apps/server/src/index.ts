@@ -32,6 +32,7 @@ import { MasterBrainStore, type MasterBrainId } from "./master-brain-store.js";
 import { requireAuth, registerAuthRoutes, isUpgradeRequestAuthenticated, logAuthStartupState } from "./auth.js";
 import { dispatchLimiter, modelsLimiter, generalApiLimiter, revealSecretLimiter } from "./rate-limits.js";
 import { removeEnvVars } from "./env-file-store.js";
+import { loadAgentRoster, loadMaxConcurrentAgents, type AgentRoster } from "./agent-roster.js";
 
 const DEFAULT_SERVER_PORT = 43117;
 const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -175,59 +176,10 @@ const RETIRED_PRESET_LABELS: Record<string, string> = {
   "vyceai-1": "vyceai API",
 };
 
-// Fixed roster for this phase: a stand-in for a future "what can this agent
-// do" profile. Master LLM capability inference would populate this
-// differently later, but the Orchestrator's matching logic wouldn't change.
-//
-// v0.10: each entry's backendProfile is only the *default* now — the
-// management UI's per-agent reassignment (PUT /api/agents/:id/backend-profile)
-// persists an override in AgentBackendAssignmentStore that takes priority;
-// see the `resolve()` calls below where agents are actually registered.
-//
-// v0.21: rebuilt to the operator's current 13-agent runtime lineup,
-// replacing the 15-agent (14 committed + 1 uncommitted, see below) roster
-// this grew into across v0.3-v0.16. Renumbered agent-01..13 cleanly rather
-// than keeping the old ids with gaps — nothing persists state keyed by
-// agent id across this rebuild (AgentBackendAssignmentStore/
-// DefaultBackendStore are local per-agent-id override files, harmlessly
-// orphaned by a renumbering; real credentials live in apps/server/.env.local
-// keyed by *profile* id, e.g. AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL, untouched
-// by this). Old id -> new id, for anyone cross-referencing earlier docs/
-// commits: 01->01 (official), 03->02 (official; 02's own official slot was
-// dropped, see below), 04->03 (opencode; 05's duplicate opencode slot was
-// dropped), 06->04 (codex), 07->05 (cline), 08..14 -> 06..12 (third-party
-// profiles from the previous lineup); agents 09..13 now follow the chosen
-// global backend unless explicitly assigned another profile.
-//
-// Three agents from the pre-v0.21 roster were dropped to fit the operator's
-// explicit new counts (2 official / 1 opencode / 1 codex, not 3/2/2) rather
-// than kept "just in case" — flagging this plainly instead of assuming:
-//   - agent-02 (a 3rd official Claude Code agent, no backendProfile)
-//   - agent-05 (a 2nd OpenCode agent)
-//   - agent-15 (a 2nd Codex agent) — this one was *uncommitted*, added in an
-//     in-progress v0.20 session (see the pre-v0.21 git diff) that had
-//     already verified it dispatches real tasks successfully via `codex
-//     exec`. That verification result isn't lost — see the v0.21 report —
-//     just the roster slot, since the v0.21 spec's target table is explicit
-//     about "Codex CLI: 1 個".
-// If any of these three should come back, that's a one-line re-add, not a
-// re-architecture — nothing else in this file depends on there being
-// exactly 13.
-const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: string; backendProfile?: string }> = {
-  "agent-01": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-02": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-03": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
-  "agent-04": { eligibleCapabilities: ["backend", "testing"], runtime: "codex" },
-  "agent-05": { eligibleCapabilities: ["frontend", "docs"], runtime: "cline" },
-  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-07": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-08": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-09": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-10": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-11": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-12": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-  "agent-13": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
-};
+// Defaults preserve the 13-agent demo. Deployers can replace that roster
+// with exact runtime counts in AI_OFFICE_AGENT_COUNTS and cap live CLI
+// processes independently with AI_OFFICE_MAX_CONCURRENT_AGENTS.
+const AGENT_ROSTER: AgentRoster = loadAgentRoster();
 
 // v0.18: CORS + access-auth hardening for the Cloudflare Tunnel exposure —
 // see auth.ts and SECURITY.md's sibling doc, and QUICKSTART.md's "Access
@@ -241,11 +193,8 @@ const EXTRA_ALLOWED_ORIGINS = (process.env.AI_OFFICE_ALLOWED_ORIGINS ?? "")
 const ALLOWED_ORIGINS = new Set<string>([
   `http://localhost:${WEB_PORT}`,
   `http://127.0.0.1:${WEB_PORT}`,
-  // This project's own Cloudflare Tunnel public hostname (~/.cloudflared/config.yml:
-  // "your-tunnel-host.example" -> localhost:43118), the same one vite.config.ts
-  // allow-lists for its dev-server Host check. If this hostname ever changes,
-  // set AI_OFFICE_ALLOWED_ORIGINS instead of editing this constant.
-  "https://your-tunnel-host.example",
+  // Deployments with a different public origin can set
+  // AI_OFFICE_ALLOWED_ORIGINS instead of editing this constant.
   ...EXTRA_ALLOWED_ORIGINS,
 ]);
 
@@ -389,6 +338,7 @@ const orchestrator = new Orchestrator({
     codex: new CodexAdapter(credentialRouter),
   },
   workspaceGuard: new GitRepoGuard(REPO_ROOT),
+  maxConcurrentTasks: loadMaxConcurrentAgents(),
   broadcast: (event) => {
     broadcast(event);
     goalCoordinator.observe(event);
