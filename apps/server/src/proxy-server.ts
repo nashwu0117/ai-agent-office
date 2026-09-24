@@ -110,8 +110,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
     return;
   }
 
-  const baseUrl = process.env[profile.baseUrlEnvVar];
-  const authToken = process.env[profile.authTokenEnvVar];
+  const baseUrl = process.env[profile.baseUrlEnvVar]?.trim() || profile.defaultBaseUrl;
+  const authToken = process.env[profile.authTokenEnvVar]?.trim();
   if (!baseUrl || !authToken) {
     const missing = [!baseUrl && profile.baseUrlEnvVar, !authToken && profile.authTokenEnvVar].filter(Boolean).join(", ");
     res.writeHead(500, { "content-type": "application/json" });

@@ -36,3 +36,18 @@ export function upsertEnvVar(filePath: string, name: string, value: string): voi
   writeFileSync(tmpPath, lines.join("\n"), "utf8");
   renameSync(tmpPath, filePath);
 }
+
+/** Remove only the named assignments, preserving unrelated local settings. */
+export function removeEnvVars(filePath: string, names: string[]): void {
+  if (names.length === 0 || !existsSync(filePath)) return;
+  const removed = new Set(names);
+  const lines = readFileSync(filePath, "utf8").split("\n");
+  const kept = lines.filter((line) => {
+    const match = /^([A-Z_][A-Z0-9_]*)=/.exec(line);
+    return !match || !removed.has(match[1]);
+  });
+  if (kept.length === lines.length) return;
+  const tmpPath = `${filePath}.tmp`;
+  writeFileSync(tmpPath, kept.join("\n"), "utf8");
+  renameSync(tmpPath, filePath);
+}

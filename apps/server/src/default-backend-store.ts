@@ -38,6 +38,10 @@ export class DefaultBackendStore {
     this.persist();
   }
 
+  clearIfRetired(profileIds: string[]): void {
+    if (this.value && profileIds.includes(this.value)) this.set(null);
+  }
+
   private load(): string | null {
     if (!existsSync(this.filePath)) return null;
     try {

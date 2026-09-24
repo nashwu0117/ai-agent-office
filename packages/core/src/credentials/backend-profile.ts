@@ -94,6 +94,8 @@ export interface BackendProfile {
   baseUrlEnvVar: string;
   /** Env var this server reads the backend's auth token from. Never the value itself. */
   authTokenEnvVar: string;
+  /** Catalog URL used until the operator supplies a custom Base URL. */
+  defaultBaseUrl?: string;
   /**
    * v0.9: which wire format this backend actually speaks, read by the local
    * format-translation proxy (apps/server/src/proxy-server.ts) to decide
@@ -103,10 +105,8 @@ export interface BackendProfile {
    * translation is lossy in documented, specific ways, never a silent
    * best-effort pretending the two APIs are equivalent.
    *
-   * v0.21: a third value, "unset", was added for a profile whose wire format
-   * genuinely isn't known yet (see vyceai's seed profile in index.ts — no
-   * public documentation of its API shape was found, so this project
-   * deliberately does not guess). A profile with apiFormat "unset" is never
+   * v0.21: a third value, "unset", supports a custom profile whose wire
+   * format has not been confirmed. A profile with apiFormat "unset" is never
    * `available` and the proxy refuses to route it with a clear
    * configuration error instead of misinterpreting its bytes — see
    * backend-profile-store.ts's toClientInfo and proxy-server.ts's

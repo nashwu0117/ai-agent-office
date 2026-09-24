@@ -1,128 +1,69 @@
-# v0.13 Part D: backend profile expansion — environment variables to set
+# Provider catalog and API keys
 
-This lists exactly which environment variables to add to `apps/server/.env.local`
-(git-ignored — see Part F below) for each backend profile added in v0.13.
-**No key values appear in this file or anywhere else in the repo** — only
-the variable *names* the server reads them from, per this project's own
-credential-handling rule (see `BackendProfile`'s doc-comment in
-`packages/core/src/credentials/backend-profile.ts`).
+Backend profiles let Claude Code agents use an API key from a hosted model
+provider. Common providers are preloaded with an API endpoint, the protocol
+the local proxy supports, and a starter model. The user selects a provider,
+pastes its key and saves. The first API key configured becomes the default
+backend; later keys do not silently replace it. A user can fetch the models
+available to a key and change the starter model at any time.
 
-Every profile below is pre-registered in `AGENT_ROSTER`
-(`apps/server/src/index.ts`) against one dedicated agent, so as soon as its
-two (or three) env vars are set and the server is restarted, that agent's
-next dispatched task actually uses it — no other setup needed. Until then,
-the agent still registers and appears "available" in the UI, but any task
-dispatched to it fails fast with a clear `backendProfileError` instead of
-silently falling back to the official Anthropic credential (existing v0.8
-behavior, unchanged).
+Keys are written to `apps/server/.env.local`, which is ignored by Git. The
+JSON registry stores environment-variable names and provider settings, never
+the key values. Base URLs are editable because some services use different
+endpoints by region or account.
 
-## NVIDIA NIM ×3 (`nvidia-1` / `nvidia-2` / `nvidia-3` → `agent-08`/`09`/`10`)
+## Built-in providers
 
-Speaks OpenAI Chat Completions (confirmed against a real NVIDIA NIM backend
-in v0.11 — see `docs/api-format-translation.md`), so each also needs a
-`_MODEL` override var (v0.11's `modelOverrideEnvVar` mechanism): the `claude`
-CLI sends an Anthropic model id these backends don't recognize, so the
-local format-translation proxy substitutes this value before forwarding.
+| Provider | Base URL | API format | Starter model |
+| --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | OpenAI Chat Completions | `gpt-6-astra` |
+| Anthropic Claude | `https://api.anthropic.com` | Anthropic Messages | `claude-sonnet-5` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAI Chat Completions | `gemini-3.8-flash` |
+| OpenRouter | `https://openrouter.ai/api/v1` | OpenAI Chat Completions | `openai/gpt-6-astra` |
+| DeepSeek | `https://api.deepseek.com` | OpenAI Chat Completions | `deepseek-flash` |
+| Groq | `https://api.groq.com/openai/v1` | OpenAI Chat Completions | `openai/gpt-oss-20b` |
+| Mistral AI | `https://api.mistral.ai/v1` | OpenAI Chat Completions | `mistral-large-latest` |
+| xAI Grok | `https://api.x.ai/v1` | OpenAI Chat Completions | `grok-4.7` |
+| SiliconFlow | `https://api.siliconflow.com/v1` | OpenAI Chat Completions | `deepseek-ai/DeepSeek-V3` |
+| Alibaba Cloud Qwen | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | OpenAI Chat Completions | `qwen-plus` |
+| Moonshot AI Kimi | `https://api.moonshot.ai/v1` | OpenAI Chat Completions | `kimi-k2.6` |
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | OpenAI Chat Completions | `openai/gpt-oss-20b` |
 
-| Profile | Base URL env var | Auth token env var | Model override env var |
-|---|---|---|---|
-| `nvidia-1` | `AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL` | `AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN` | `AI_OFFICE_BACKEND_NVIDIA_1_MODEL` |
-| `nvidia-2` | `AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL` | `AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN` | `AI_OFFICE_BACKEND_NVIDIA_2_MODEL` |
-| `nvidia-3` | `AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL` | `AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN` | `AI_OFFICE_BACKEND_NVIDIA_3_MODEL` |
+Provider endpoints and compatibility references:
 
-Base URL is NVIDIA's OpenAI-compatible endpoint's root (ending in `/v1`,
-same convention as the existing `mock-openai`/`nvidia-real` profiles), e.g.
-`https://integrate.api.nvidia.com/v1`. Model override is whatever NIM model
-slug that key actually has access to, e.g. `meta/llama-3.1-70b-instruct`.
+- [OpenAI API quickstart](https://developers.openai.com/api/docs/quickstart)
+- [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
+- [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)
+- [OpenRouter quickstart](https://openrouter.ai/docs/quickstart)
+- [DeepSeek API quickstart](https://api-docs.deepseek.com/quick_start)
+- [Groq OpenAI compatibility](https://console.groq.com/docs/openai)
+- [Mistral API quickstart](https://docs.mistral.ai/getting-started/quickstarts/developer/first-api-request)
+- [xAI REST API reference](https://docs.x.ai/developers/rest-api-reference/inference)
+- [SiliconFlow API examples](https://github.com/siliconflow/siliconflow-open-source-tasks/blob/main/README_EN.md)
+- [Alibaba Model Studio Base URLs](https://help.aliyun.com/en/model-studio/base-url)
+- [NVIDIA NIM models](https://build.nvidia.com/models)
+- [Moonshot AI platform docs](https://platform.moonshot.ai/docs)
 
-## b.ai ×3 (`bai-1` / `bai-2` / `bai-3` → `agent-11`/`12`/`13`)
+The Alibaba preset uses the Singapore endpoint. Model Studio keys are
+region-specific, so select the Base URL shown in the provider console if the
+key belongs to another region. NVIDIA model availability also depends on the
+selected NIM endpoint; use **Fetch Models** if the starter model is not
+enabled for the key.
 
-Speaks the real Anthropic Messages API at `/v1/messages` (confirmed against
-`docs.b.ai/llmservice/api/` — see `docs/runtime-research-v0.13.md`), so
-these are byte-passthrough `anthropic`-format profiles — no model-override
-var (the CLI's own model id is forwarded as-is; b.ai's own model catalog
-determines what's valid there).
+## Retired default entries
 
-| Profile | Base URL env var | Auth token env var |
-|---|---|---|
-| `bai-1` | `AI_OFFICE_BACKEND_BAI_1_BASE_URL` | `AI_OFFICE_BACKEND_BAI_1_AUTH_TOKEN` |
-| `bai-2` | `AI_OFFICE_BACKEND_BAI_2_BASE_URL` | `AI_OFFICE_BACKEND_BAI_2_AUTH_TOKEN` |
-| `bai-3` | `AI_OFFICE_BACKEND_BAI_3_BASE_URL` | `AI_OFFICE_BACKEND_BAI_3_AUTH_TOKEN` |
+The old b.ai, Experiential Labs and vyceai defaults were removed because
+they are less commonly used or lack a reliable, documented setup for this
+project. On upgrade, the app removes only matching built-in rows and their
+own key/Base URL assignments from `.env.local`; unrelated custom profiles
+and environment variables are preserved. Agents that referenced a retired
+profile return to the configured global default.
 
-Base URL is the host only, **no `/v1` suffix** — `https://api.b.ai` — since
-the `claude` CLI itself appends `/v1/messages` and this repo's proxy just
-concatenates `baseUrl + requestPath` for `anthropic`-format profiles (see
-`passthroughToAnthropic` in `apps/server/src/proxy-server.ts`). Auth token
-is your b.ai API key (`sk-...`).
+## API formats supported by this project
 
-## platform.experientiallabs.ai ×1 (`experientiallabs-1` → `agent-14`)
-
-Also the real Anthropic Messages API (confirmed against
-`platform.experientiallabs.ai/docs/coding-agents` — see
-`docs/runtime-research-v0.13.md`), same byte-passthrough shape as b.ai
-above.
-
-| Profile | Base URL env var | Auth token env var |
-|---|---|---|
-| `experientiallabs-1` | `AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_BASE_URL` | `AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN` |
-
-Base URL, again host only, no `/v1` suffix: `https://api.experientiallabs.ai`.
-Auth token is your gateway key (`xpl_<40 hex>`). One extra step specific to
-this gateway: its model ids are **dot-form** gateway slugs (e.g.
-`claude-opus-5`), not Anthropic's own dashed wire ids — set the agent's
-`model` field in `AGENT_ROSTER` (`apps/server/src/index.ts`) to a slug this
-gateway actually grants your key, or requests fail with `403
-model_not_granted`. If you route a non-Claude model through it, also see
-the gateway's own note about setting `CLAUDE_CODE_MAX_CONTEXT_TOKENS` to
-avoid premature context compaction.
-
-## Runtime credential (not a `BackendProfile`): Cline
-
-Cline is a different *runtime* (`runtime: "cline"`, `agent-07`), not a
-Claude Code backend profile — it doesn't go through
-`BackendProfile`/the format-translation proxy at all, since it's a whole
-separate CLI binary (`packages/adapters/cline`). Its one credential is:
-
-| Purpose | Env var |
-|---|---|
-| Cline's own hosted "cline" provider (free-tagged models) | `CLINE_API_KEY` |
-
-If unset, the adapter falls back to whatever `cline auth` login session is
-already cached under `~/.cline` on this machine (same as OpenCode's
-credential story) — see the README's "Setting up Cline" section.
-
-## Example `.env.local` skeleton (names only — fill in real values yourself)
-
-```bash
-# apps/server/.env.local — git-ignored, never commit real values here
-
-# NVIDIA NIM x3
-AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL=
-AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN=
-AI_OFFICE_BACKEND_NVIDIA_1_MODEL=
-AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL=
-AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN=
-AI_OFFICE_BACKEND_NVIDIA_2_MODEL=
-AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL=
-AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN=
-AI_OFFICE_BACKEND_NVIDIA_3_MODEL=
-
-# b.ai x3
-AI_OFFICE_BACKEND_BAI_1_BASE_URL=
-AI_OFFICE_BACKEND_BAI_1_AUTH_TOKEN=
-AI_OFFICE_BACKEND_BAI_2_BASE_URL=
-AI_OFFICE_BACKEND_BAI_2_AUTH_TOKEN=
-AI_OFFICE_BACKEND_BAI_3_BASE_URL=
-AI_OFFICE_BACKEND_BAI_3_AUTH_TOKEN=
-
-# platform.experientiallabs.ai x1
-AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_BASE_URL=
-AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN=
-
-# Cline runtime (not a BackendProfile)
-CLINE_API_KEY=
-```
-
-Any var left blank simply means that one profile/agent stays unavailable
-(fails fast on dispatch) until filled in — every other already-working
-agent/profile is unaffected.
+`anthropic` passes Anthropic Messages API requests through, applying the
+profile's key and model mapping. `openai-chat-completions` translates the
+Claude Code Messages request and response to OpenAI Chat Completions. The
+translation covers the shared chat and tool-call shape; provider-specific
+features outside that shape may not be available. The proxy does not
+translate OpenAI Responses API requests.

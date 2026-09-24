@@ -43,6 +43,18 @@ export class AgentBackendAssignmentStore {
     this.persist();
   }
 
+  clearProfiles(profileIds: string[]): void {
+    const retired = new Set(profileIds);
+    let changed = false;
+    for (const [agentId, profileId] of Object.entries(this.assignments)) {
+      if (profileId && retired.has(profileId)) {
+        delete this.assignments[agentId];
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
   private load(): Record<string, string | null> {
     if (!existsSync(this.filePath)) return {};
     try {

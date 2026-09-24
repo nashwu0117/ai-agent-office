@@ -38,7 +38,7 @@ export function resolveBackendEnv(
     );
   }
 
-  const baseUrl = process.env[profile.baseUrlEnvVar];
+  const baseUrl = process.env[profile.baseUrlEnvVar]?.trim() || profile.defaultBaseUrl;
   const authToken = process.env[profile.authTokenEnvVar];
   if (!baseUrl || !authToken) {
     const missing = [!baseUrl && profile.baseUrlEnvVar, !authToken && profile.authTokenEnvVar]

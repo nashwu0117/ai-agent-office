@@ -50,6 +50,7 @@ export interface BackendProfileInput {
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
+  defaultBaseUrl?: string;
   roleModelMap?: RoleModelMap;
   fallbackModel?: string;
   customHeaders?: CustomHeaders;
@@ -62,6 +63,7 @@ export interface BackendProfileUpdate {
   apiFormat?: string;
   baseUrlEnvVar?: string;
   authTokenEnvVar?: string;
+  defaultBaseUrl?: string;
   roleModelMap?: RoleModelMap;
   fallbackModel?: string;
   customHeaders?: CustomHeaders;
@@ -112,8 +114,20 @@ export class BackendProfileStore {
   private mergeMissingDefaults(defaults: BackendProfileRegistry): void {
     let changed = false;
     for (const [id, profile] of Object.entries(defaults)) {
-      if (!this.registry[id]) {
+      const existing = this.registry[id];
+      if (!existing) {
         this.registry[id] = profile;
+        changed = true;
+        continue;
+      }
+      // Backfill catalog metadata for built-in entries already persisted by
+      // an older release; keep any operator-selected URL/model untouched.
+      if (existing.defaultBaseUrl === undefined && profile.defaultBaseUrl) {
+        existing.defaultBaseUrl = profile.defaultBaseUrl;
+        changed = true;
+      }
+      if (existing.fallbackModel === undefined && profile.fallbackModel) {
+        existing.fallbackModel = profile.fallbackModel;
         changed = true;
       }
     }
@@ -166,6 +180,7 @@ export class BackendProfileStore {
       apiFormat: patch.apiFormat ?? existing.apiFormat,
       baseUrlEnvVar: patch.baseUrlEnvVar ?? existing.baseUrlEnvVar,
       authTokenEnvVar: patch.authTokenEnvVar ?? existing.authTokenEnvVar,
+      defaultBaseUrl: patch.defaultBaseUrl ?? existing.defaultBaseUrl,
       // v0.21: these four are always taken from the patch when the caller
       // includes the key at all (even an explicit {} to clear one) —
       // undefined-means-"keep existing" would make it impossible to ever
@@ -209,6 +224,7 @@ export class BackendProfileStore {
       apiFormat: input.apiFormat as BackendProfile["apiFormat"],
       baseUrlEnvVar,
       authTokenEnvVar,
+      ...(input.defaultBaseUrl?.trim() ? { defaultBaseUrl: input.defaultBaseUrl.trim() } : {}),
       ...(roleModelMap ? { roleModelMap } : {}),
       ...(fallbackModel ? { fallbackModel } : {}),
       ...(customHeaders ? { customHeaders } : {}),
@@ -297,10 +313,23 @@ export class BackendProfileStore {
     writeFileSync(tmpPath, JSON.stringify(this.registry, null, 2), "utf8");
     renameSync(tmpPath, this.filePath);
   }
+
+  /** Remove retired built-in entries during a provider-catalog migration. */
+  removeProfiles(ids: string[]): BackendProfile[] {
+    const removed: BackendProfile[] = [];
+    for (const id of ids) {
+      const profile = this.registry[id];
+      if (!profile) continue;
+      removed.push(profile);
+      delete this.registry[id];
+    }
+    if (removed.length > 0) this.persist();
+    return removed;
+  }
 }
 
 function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
-  const baseUrl = process.env[profile.baseUrlEnvVar];
+  const baseUrl = process.env[profile.baseUrlEnvVar]?.trim() || profile.defaultBaseUrl;
   const authToken = process.env[profile.authTokenEnvVar];
   return {
     id: profile.id,

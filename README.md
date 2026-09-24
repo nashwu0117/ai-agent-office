@@ -26,19 +26,13 @@ So far:
   Re-verified in v0.13.1 against the actually-installed CLI binary
   (same "no" — see
   [`docs/runtime-research-v0.13.1.md`](./docs/runtime-research-v0.13.1.md)).)
-- 8 of the Claude Code agents are routed through independent third-party API
-  backends instead of the operator's own official Anthropic subscription
-  (NVIDIA NIM ×3, b.ai ×3, platform.experientiallabs.ai ×1, and — new in
-  v0.21 — vyceai ×1) via the `BackendProfile` mechanism below — see
-  [`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md) for
-  exactly which environment variables to set for each one. **vyceai
-  research (v0.21):** no official API documentation was found for it (its
-  own site's marketing copy and a couple of third-party integrations
-  suggest OpenAI-compatible, but nothing authoritative pins down the exact
-  base URL or confirms it against this project's own two supported
-  `apiFormat`s), so its profile ships with `apiFormat: "unset"` rather than
-  a guessed value — the operator picks the real format themselves in the
-  Backend & Credentials panel once they have a key to test with.
+- **Provider catalog for common APIs** — OpenAI, Anthropic, Gemini,
+  OpenRouter, DeepSeek, Groq, Mistral, xAI, SiliconFlow, Qwen, Moonshot AI
+  and NVIDIA
+  profiles start with their documented URL, API format and a default model.
+  Users can paste a key and start; the key is stored in the ignored server
+  `.env.local`, while model discovery lets them switch to any model their key
+  can access. See [`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md).
 - **Backend & Credentials panel rebuilt as a cc-switch-style
   single-provider editor (v0.21)** — pick a provider from a left-hand list
   (every `BackendProfile`, plus the four CLI-login providers) and edit it
@@ -205,9 +199,8 @@ npm run dev:web
 
 1. Open the web UI — you should see 13 agents wandering the Public/Talent
    Area. `agent-01`/`02` run on Claude Code with the operator's own official
-   subscription; `agent-06`..`13` also run on Claude Code but routed through
-   a third-party backend profile (NVIDIA/b.ai/Experiential Labs/vyceai —
-   see the "Backend & Credentials" panel); `agent-03` runs on OpenCode;
+   subscription; `agent-06`..`13` run on Claude Code and follow the selected
+   default backend until you assign them individually; `agent-03` runs on OpenCode;
    `agent-04` runs on Codex CLI; and `agent-05` runs on Cline (click an
    agent to see its `Runtime` in the detail panel).
 2. Fill in a task description, a real local folder path, and optionally

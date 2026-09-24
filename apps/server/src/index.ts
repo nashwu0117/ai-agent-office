@@ -12,6 +12,7 @@ import {
   HandoffCoordinator,
   KNOWN_CAPABILITIES,
   type Agent,
+  type BackendProfile,
   type BackendProfileRegistry,
   type MasterBrain,
   type OfficeEvent,
@@ -30,6 +31,7 @@ import { DefaultBackendStore } from "./default-backend-store.js";
 import { MasterBrainStore, type MasterBrainId } from "./master-brain-store.js";
 import { requireAuth, registerAuthRoutes, isUpgradeRequestAuthenticated, logAuthStartupState } from "./auth.js";
 import { dispatchLimiter, modelsLimiter, generalApiLimiter, revealSecretLimiter } from "./rate-limits.js";
+import { removeEnvVars } from "./env-file-store.js";
 
 const DEFAULT_SERVER_PORT = 43117;
 const PORT = Number(process.env.AI_OFFICE_SERVER_PORT ?? process.env.PORT ?? DEFAULT_SERVER_PORT);
@@ -108,91 +110,69 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
   "nvidia-1": {
     id: "nvidia-1",
     label: "NVIDIA API #1",
+    defaultBaseUrl: "https://integrate.api.nvidia.com/v1",
     baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL",
     authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
+    fallbackModel: "openai/gpt-oss-20b",
   },
   "nvidia-2": {
     id: "nvidia-2",
     label: "NVIDIA API #2",
+    defaultBaseUrl: "https://integrate.api.nvidia.com/v1",
     baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL",
     authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
+    fallbackModel: "openai/gpt-oss-20b",
   },
   "nvidia-3": {
     id: "nvidia-3",
     label: "NVIDIA API #3",
+    defaultBaseUrl: "https://integrate.api.nvidia.com/v1",
     baseUrlEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL",
     authTokenEnvVar: "AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN",
     apiFormat: "openai-chat-completions",
+    fallbackModel: "openai/gpt-oss-20b",
   },
 
-  // v0.13: three independent b.ai backends. b.ai's Messages endpoint
-  // (docs.b.ai/llmservice/api) is the real Anthropic Messages protocol —
-  // see docs/runtime-research-v0.13.md — so these are byte-passthrough
-  // "anthropic" profiles, same wire behavior as the "nvidia" profile above.
-  // Per-role model mapping / Fallback model (v0.21, set from the panel) work
-  // for this apiFormat too — none set by default.
-  "bai-1": {
-    id: "bai-1",
-    label: "b.ai API #1",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_BAI_1_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_BAI_1_AUTH_TOKEN",
-    apiFormat: "anthropic",
-  },
-  "bai-2": {
-    id: "bai-2",
-    label: "b.ai API #2",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_BAI_2_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_BAI_2_AUTH_TOKEN",
-    apiFormat: "anthropic",
-  },
-  "bai-3": {
-    id: "bai-3",
-    label: "b.ai API #3",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_BAI_3_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_BAI_3_AUTH_TOKEN",
-    apiFormat: "anthropic",
-  },
+  openai: apiPreset("openai", "OpenAI", "https://api.openai.com/v1", "gpt-6-astra"),
+  anthropic: apiPreset("anthropic", "Anthropic Claude", "https://api.anthropic.com", "claude-sonnet-5", "anthropic"),
+  gemini: apiPreset("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.8-flash"),
+  openrouter: apiPreset("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-6-astra"),
+  deepseek: apiPreset("deepseek", "DeepSeek", "https://api.deepseek.com", "deepseek-flash"),
+  groq: apiPreset("groq", "Groq", "https://api.groq.com/openai/v1", "openai/gpt-oss-20b"),
+  mistral: apiPreset("mistral", "Mistral AI", "https://api.mistral.ai/v1", "mistral-large-latest"),
+  xai: apiPreset("xai", "xAI Grok", "https://api.x.ai/v1", "grok-4.7"),
+  siliconflow: apiPreset("siliconflow", "SiliconFlow", "https://api.siliconflow.com/v1", "deepseek-ai/DeepSeek-V3"),
+  qwen: apiPreset("qwen", "Alibaba Cloud Qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+  moonshot: apiPreset("moonshot", "Moonshot AI Kimi", "https://api.moonshot.ai/v1", "kimi-k2.6"),
+};
 
-  // v0.13: platform.experientiallabs.ai. Its coding-agent setup doc has
-  // Claude Code talk to /v1/messages — the real Anthropic Messages
-  // protocol, not the OpenAI-shaped endpoints the same gateway also
-  // exposes at other paths — see docs/runtime-research-v0.13.md. Same
-  // byte-passthrough "anthropic" apiFormat as the b.ai profiles above.
-  "experientiallabs-1": {
-    id: "experientiallabs-1",
-    label: "Experiential Labs API",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN",
-    apiFormat: "anthropic",
-  },
+function apiPreset(
+  id: string,
+  label: string,
+  defaultBaseUrl: string,
+  fallbackModel: string,
+  apiFormat: BackendProfile["apiFormat"] = "openai-chat-completions"
+): BackendProfile {
+  const envId = id.toUpperCase().replace(/-/g, "_");
+  return {
+    id,
+    label,
+    defaultBaseUrl,
+    baseUrlEnvVar: `AI_OFFICE_BACKEND_${envId}_BASE_URL`,
+    authTokenEnvVar: `AI_OFFICE_BACKEND_${envId}_AUTH_TOKEN`,
+    apiFormat,
+    fallbackModel,
+  };
+}
 
-  // v0.21: vyceai — first time this project connects to it. Researched live
-  // (WebSearch across vyceai.com's own marketing copy, LMSpeed's provider
-  // page, a GitHub issue proposing it as a provider for another project, and
-  // a third-party "pi" model-provider extension package) rather than
-  // guessed: vyceai.com's own copy claims "full OpenAI & Anthropic SDK
-  // compatibility — drop-in replacement, zero code changes", and the
-  // independent "pi-vyceai-provider" package describes it as "14+ models
-  // via OpenAI-compatible proxy" with `sk-`-prefixed keys and a live
-  // `/v1/models` endpoint — but no official vyceai API documentation page
-  // (no docs.vyceai.com/api.vyceai.com, and vyceai.com's own site did not
-  // yield a docs section through a plain fetch) was found to confirm the
-  // exact base URL or pin down "OpenAI *and* Anthropic" vs. "OpenAI only" as
-  // read by *this* proxy's two supported apiFormats. Per the v0.21 build
-  // prompt's explicit instruction not to guess: apiFormat is left "unset"
-  // (see BackendProfile.apiFormat's doc comment) and baseUrlEnvVar/
-  // authTokenEnvVar are left as placeholder names for the operator to fill
-  // in — through the Backend & Credentials panel — once they have a real key
-  // and have confirmed which format it actually speaks.
-  "vyceai-1": {
-    id: "vyceai-1",
-    label: "vyceai API",
-    baseUrlEnvVar: "AI_OFFICE_BACKEND_VYCEAI_1_BASE_URL",
-    authTokenEnvVar: "AI_OFFICE_BACKEND_VYCEAI_1_AUTH_TOKEN",
-    apiFormat: "unset",
-  },
+const RETIRED_PRESET_LABELS: Record<string, string> = {
+  "bai-1": "b.ai API #1",
+  "bai-2": "b.ai API #2",
+  "bai-3": "b.ai API #3",
+  "experientiallabs-1": "Experiential Labs API",
+  "vyceai-1": "vyceai API",
 };
 
 // Fixed roster for this phase: a stand-in for a future "what can this agent
@@ -204,7 +184,7 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
 // persists an override in AgentBackendAssignmentStore that takes priority;
 // see the `resolve()` calls below where agents are actually registered.
 //
-// v0.21: rebuilt to the operator's current 13-agent provider lineup,
+// v0.21: rebuilt to the operator's current 13-agent runtime lineup,
 // replacing the 15-agent (14 committed + 1 uncommitted, see below) roster
 // this grew into across v0.3-v0.16. Renumbered agent-01..13 cleanly rather
 // than keeping the old ids with gaps — nothing persists state keyed by
@@ -215,9 +195,9 @@ const DEFAULT_BACKEND_PROFILES: BackendProfileRegistry = {
 // by this). Old id -> new id, for anyone cross-referencing earlier docs/
 // commits: 01->01 (official), 03->02 (official; 02's own official slot was
 // dropped, see below), 04->03 (opencode; 05's duplicate opencode slot was
-// dropped), 06->04 (codex), 07->05 (cline), 08..14 -> 06..12 (nvidia-1/2/3,
-// bai-1/2/3, experientiallabs-1, unchanged mapping/order), new 13th slot ->
-// vyceai-1 (see DEFAULT_BACKEND_PROFILES above).
+// dropped), 06->04 (codex), 07->05 (cline), 08..14 -> 06..12 (third-party
+// profiles from the previous lineup); agents 09..13 now follow the chosen
+// global backend unless explicitly assigned another profile.
 //
 // Three agents from the pre-v0.21 roster were dropped to fit the operator's
 // explicit new counts (2 official / 1 opencode / 1 codex, not 3/2/2) rather
@@ -239,18 +219,14 @@ const AGENT_ROSTER: Record<string, { eligibleCapabilities: string[]; runtime: st
   "agent-03": { eligibleCapabilities: ["frontend", "docs"], runtime: "opencode" },
   "agent-04": { eligibleCapabilities: ["backend", "testing"], runtime: "codex" },
   "agent-05": { eligibleCapabilities: ["frontend", "docs"], runtime: "cline" },
-  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-1" },
-  "agent-07": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-2" },
-  "agent-08": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "nvidia-3" },
-  "agent-09": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-1" },
-  "agent-10": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-2" },
-  "agent-11": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "bai-3" },
-  "agent-12": {
-    eligibleCapabilities: ["backend", "testing"],
-    runtime: "claude-code",
-    backendProfile: "experientiallabs-1",
-  },
-  "agent-13": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code", backendProfile: "vyceai-1" },
+  "agent-06": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-07": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-08": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-09": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-10": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-11": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-12": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
+  "agent-13": { eligibleCapabilities: ["backend", "testing"], runtime: "claude-code" },
 };
 
 // v0.18: CORS + access-auth hardening for the Cloudflare Tunnel exposure —
@@ -378,6 +354,18 @@ const agentAssignments = new AgentBackendAssignmentStore(`${DATA_DIR}agent-backe
 // hardcoded default — see default-backend-store.ts's doc-comment for the
 // full priority order.
 const defaultBackendStore = new DefaultBackendStore(`${DATA_DIR}default-backend-profile.json`);
+// One-time cleanup of the former obscure built-in rows. Match their old
+// built-in labels so a user-created profile that reused one of these ids is
+// left alone. Remove only those rows' own key/base-URL variables.
+const retiredPresetIds = Object.entries(RETIRED_PRESET_LABELS)
+  .filter(([id, label]) => backendProfileStore.registry[id]?.label === label)
+  .map(([id]) => id);
+const retiredProfiles = backendProfileStore.removeProfiles(retiredPresetIds);
+const retiredEnvVars = retiredProfiles.flatMap((profile) => [profile.baseUrlEnvVar, profile.authTokenEnvVar]);
+removeEnvVars(ENV_LOCAL_PATH, retiredEnvVars);
+for (const envName of retiredEnvVars) delete process.env[envName];
+agentAssignments.clearProfiles(retiredPresetIds);
+defaultBackendStore.clearIfRetired(retiredPresetIds);
 
 /** Priority: explicit per-agent override > AGENT_ROSTER's own default > global default > official (undefined). */
 function resolveEffectiveBackendProfile(agentId: string, rosterDefault: string | undefined): string | undefined {
@@ -712,6 +700,20 @@ app.put("/api/backend-profiles/:id", (req, res) => {
         if (agent.backendProfile === req.params.id) orchestrator.setAgentEnabled(agent.id, enabled);
       }
     }
+    // The first API key a user adds becomes the default automatically. This
+    // keeps the quick-start flow to choosing a provider and pasting its key;
+    // a later provider never silently replaces an existing default.
+    const configuredProfile = backendProfileStore.registry[req.params.id];
+    if (typeof authTokenEnvVar === "string" && configuredProfile && !defaultBackendStore.get() && backendProfileStore.list().find((p) => p.id === req.params.id)?.available) {
+      defaultBackendStore.set(req.params.id);
+      broadcast({ type: "default_backend_profile_changed", backendProfile: req.params.id });
+      for (const agent of orchestrator.listAgents()) {
+        if (agentAssignments.hasExplicitOverride(agent.id)) continue;
+        if (AGENT_ROSTER[agent.id]?.backendProfile !== undefined) continue;
+        orchestrator.setAgentBackendProfile(agent.id, req.params.id);
+        orchestrator.setAgentEnabled(agent.id, true);
+      }
+    }
     broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
     res.json(backendProfileStore.list().find((p) => p.id === req.params.id));
   } catch (err) {
@@ -770,12 +772,10 @@ app.get("/api/backend-profiles/:id/models", modelsLimiter, async (req, res) => {
     res.status(409).json({ error: `Profile "${profile.id}" is stopped. Start it before fetching models.` });
     return;
   }
-  const baseUrl = process.env[profile.baseUrlEnvVar]?.trim();
+  const baseUrl = process.env[profile.baseUrlEnvVar]?.trim() || profile.defaultBaseUrl;
   const authToken = process.env[profile.authTokenEnvVar]?.trim();
   if (!baseUrl || !authToken) {
-    res.status(409).json({
-      error: `Profile "${profile.id}" is missing ${profile.baseUrlEnvVar} and/or ${profile.authTokenEnvVar} on this server.`,
-    });
+    res.status(409).json({ error: `Profile "${profile.id}" is missing its API key (${profile.authTokenEnvVar}) on this server.` });
     return;
   }
 
@@ -787,7 +787,8 @@ app.get("/api/backend-profiles/:id/models", modelsLimiter, async (req, res) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, { headers, signal: controller.signal });
+    const modelsPath = profile.apiFormat === "anthropic" ? "/v1/models" : "/models";
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}${modelsPath}`, { headers, signal: controller.signal });
     if (!response.ok) {
       res.status(502).json({ error: `Provider returned ${response.status} ${response.statusText} for GET /models.` });
       return;
@@ -830,7 +831,7 @@ app.get("/api/backend-profiles/:id/reveal", revealSecretLimiter, (req, res) => {
     return;
   }
   res.json({
-    baseUrl: process.env[profile.baseUrlEnvVar] ?? null,
+    baseUrl: process.env[profile.baseUrlEnvVar]?.trim() || profile.defaultBaseUrl || null,
     authToken: process.env[profile.authTokenEnvVar] ?? null,
   });
 });
@@ -1056,7 +1057,7 @@ httpServer.listen(PORT, () => {
         console.warn(`  - "${id}": not registered in backend-profiles.json — every agent using it will fail fast.`);
         continue;
       }
-      const ready = Boolean(process.env[profile.baseUrlEnvVar]) && Boolean(process.env[profile.authTokenEnvVar]);
+      const ready = Boolean(process.env[profile.baseUrlEnvVar]?.trim() || profile.defaultBaseUrl) && Boolean(process.env[profile.authTokenEnvVar]?.trim());
       console.log(
         `  - ${id} (${profile.label}): ${ready ? "ready" : `missing ${profile.baseUrlEnvVar} and/or ${profile.authTokenEnvVar}`}`
       );

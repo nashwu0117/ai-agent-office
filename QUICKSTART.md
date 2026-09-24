@@ -21,11 +21,10 @@ If you're starting from zero, do these in order:
    - `opencode auth login` — the OpenCode agent.
    - `codex login` — the Codex agent.
    - `cline auth` (or set `CLINE_API_KEY`) — the Cline agent.
-3. **If you want any of the 8 third-party-backend agents (3 NVIDIA, 3 b.ai,
-   1 Experiential Labs, 1 vyceai), fill in their API keys** in
-   `apps/server/.env.local` — see [§4](#4-what-needs-a-key-first). Skip
-   this if you're fine with 5 of 13 agents (all built-in CLI logins) and
-   don't want to spend real third-party quota.
+3. **If you want to use a provider API**, open Backend & Credentials,
+   choose a provider from the catalog, paste its API key, and set it as the
+   default backend. The URL, API format and starter model are prefilled.
+   Skip this if you use the official CLI logins.
 4. **Start the app**: `npm install` (first time only), then `npm run dev`.
 5. **Open the web UI** at the URL the launcher prints. If you're going
    through a tunnel and set a password in step 1, you'll see a login
@@ -148,76 +147,23 @@ panel (v0.21.1: removed from there since it kept confusing operators who
 aren't touching that code), isn't assigned to any agent, and isn't meant
 for real tasks.
 
-## 4. What needs a key first
+## 4. Connect a provider API
 
-8 agents (`agent-06` through `agent-13`) are wired to real third-party
-backends and need credentials. Set these in `apps/server/.env.local`
-(git-ignored — never commit real values) and restart the server
-(`tsx --env-file-if-exists=.env.local`, wired into both `npm run dev` and
-`npm run start`).
+The catalog includes OpenAI, Anthropic Claude, Google Gemini, OpenRouter,
+DeepSeek, Groq, Mistral, xAI Grok, SiliconFlow, Alibaba Cloud Qwen,
+Moonshot AI Kimi, and NVIDIA NIM. Each profile starts with the provider's
+documented Base URL, the API format this proxy supports, and a starter model. In Backend &
+Credentials, select the provider, paste its API key, save, then choose it as
+the default backend. Other unpinned Claude Code agents will use it; you can
+  still assign a different configured provider to individual agents.
 
-```bash
-# apps/server/.env.local — fill in only what you're setting up
-
-# agent-06 / NVIDIA NIM #1 — https://build.nvidia.com (create an API key).
-# NVIDIA NIM needs its own model id, not whatever Claude Code model string
-# the CLI sends — set that from the Backend & Credentials panel's per-role
-# model mapping / Fallback model fields (v0.21), not an env var here.
-AI_OFFICE_BACKEND_NVIDIA_1_BASE_URL=https://integrate.api.nvidia.com/v1
-AI_OFFICE_BACKEND_NVIDIA_1_AUTH_TOKEN=
-
-# agent-07 / NVIDIA NIM #2 — same source as above, a second key
-AI_OFFICE_BACKEND_NVIDIA_2_BASE_URL=https://integrate.api.nvidia.com/v1
-AI_OFFICE_BACKEND_NVIDIA_2_AUTH_TOKEN=
-
-# agent-08 / NVIDIA NIM #3 — same source, a third key
-AI_OFFICE_BACKEND_NVIDIA_3_BASE_URL=https://integrate.api.nvidia.com/v1
-AI_OFFICE_BACKEND_NVIDIA_3_AUTH_TOKEN=
-
-# agent-09 / b.ai #1 — https://b.ai (API key from your b.ai account)
-AI_OFFICE_BACKEND_BAI_1_BASE_URL=https://api.b.ai
-AI_OFFICE_BACKEND_BAI_1_AUTH_TOKEN=
-
-# agent-10 / b.ai #2 — same source, a second key
-AI_OFFICE_BACKEND_BAI_2_BASE_URL=https://api.b.ai
-AI_OFFICE_BACKEND_BAI_2_AUTH_TOKEN=
-
-# agent-11 / b.ai #3 — same source, a third key
-AI_OFFICE_BACKEND_BAI_3_BASE_URL=https://api.b.ai
-AI_OFFICE_BACKEND_BAI_3_AUTH_TOKEN=
-
-# agent-12 / platform.experientiallabs.ai — https://platform.experientiallabs.ai
-AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_BASE_URL=https://api.experientiallabs.ai
-AI_OFFICE_BACKEND_EXPERIENTIALLABS_1_AUTH_TOKEN=
-
-# agent-13 / vyceai — https://vyceai.com. NEW in v0.21 — its exact wire
-# format (Anthropic Messages vs. OpenAI Chat Completions) was not confirmed
-# from official docs (none were found; see README's "vyceai research"
-# note), so its apiFormat ships "unset". Fill in the URL/key here, then go
-# to the Backend & Credentials panel and pick the correct API format for
-# it yourself before dispatching a task through it — the panel will not
-# guess, and refuses to route a task through an "unset" profile with a
-# clear error instead of misinterpreting its bytes.
-AI_OFFICE_BACKEND_VYCEAI_1_BASE_URL=
-AI_OFFICE_BACKEND_VYCEAI_1_AUTH_TOKEN=
-
-# agent-05 / Cline runtime (optional — not a BackendProfile, its own
-# CLI/credential; agent-05 already works via `cline auth` login without
-# this, see §3). Only set this if you specifically want Cline's own
-# hosted "cline" provider or a different free-tagged model via override.
-CLINE_API_KEY=
-```
-
-Per-role model mapping (which upstream model id to send when the CLI
-requests Sonnet/Opus/Fable/Haiku, plus a Subagent catch-all and a Fallback
-model), custom headers, and a custom JSON body override are all set from
-the Backend & Credentials panel now too (v0.21) — see §7.
-
-Until a var is filled in, its agent still shows up and looks "available" in
-the UI — dispatching a task to it just fails fast and clearly (a
-"⚙ Backend profile error" card) instead of silently spending someone else's
-quota. Full background on why each backend speaks the API shape it does:
-[`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md).
+The app writes API keys to `apps/server/.env.local` and keeps that file
+git-ignored. Region-specific services such as Alibaba Cloud may need a
+different Base URL for the region where the key was created; edit the
+prefilled URL if the provider's console gives you another endpoint. Use
+**Fetch Models** to choose a model available to your key. See
+[`docs/backend-profiles-v0.13.md`](./docs/backend-profiles-v0.13.md) for the
+catalog and endpoint references.
 
 ## 5. Dispatching work from the web UI
 
@@ -255,7 +201,7 @@ The **Backend & Credentials** button in the header opens a panel with:
 - **Credential sources** — the subscription-based sources
   (`claude-code-cli`, `opencode-native`, `codex-native`) plus Cline's own
   `cline`/`CLINE_API_KEY` source, and whether each looks usable.
-- **Backend profiles** (v0.21: rebuilt as a cc-switch-style single-provider
+- **Backend profiles** (cc-switch-style single-provider
   editor) — a left-hand list of every provider (every registered
   `BackendProfile`, plus the four CLI-login providers: Claude Code
   official, OpenCode, Codex, Cline). Pick one to edit it in full on the
@@ -268,14 +214,14 @@ The **Backend & Credentials** button in the header opens a panel with:
   show a simplified view instead — just login status and how to log in —
   since they have no Base URL/API key of their own. This replaced the old
   table-of-profiles-plus-add-form UI entirely; there's no "add/delete
-  provider" UI (the provider list still comes from `AGENT_ROSTER`/
-  `BackendProfile` in `apps/server/src/index.ts`).
+  provider" UI; common provider entries come from the server's built-in
+  catalog, and user-entered keys stay in the ignored `.env.local` file.
 - **Default backend profile** — a dropdown of every registered profile
   plus "Official (Anthropic)". This sets which profile any *newly added,
   unassigned* agent falls back to; it doesn't retroactively move an agent
-  that already has its own profile (from `AGENT_ROSTER` or a per-agent
-  override). Per-agent overrides are set from each agent's own row in the
-  agent → backend assignment table further down the same panel.
+  that already has a per-agent override. Per-agent overrides are set from
+  each agent's own row in the agent → backend assignment table further down
+  the same panel.
 
 ## 8. Known limitations
 
@@ -288,12 +234,6 @@ The **Backend & Credentials** button in the header opens a panel with:
   not a per-request routing mechanism, so this project talks to each
   backend directly instead of through it. Full research:
   [`docs/cc-switch-research.md`](./docs/cc-switch-research.md).
-- **vyceai's wire format is unconfirmed.** No official API documentation
-  was found for it (see README's "vyceai research" note) — its
-  `BackendProfile` ships with `apiFormat: "unset"` rather than a guessed
-  value, and the proxy refuses to route a task through it until the
-  operator picks "Anthropic Messages API" or "OpenAI Chat Completions" for
-  it in the Backend & Credentials panel.
 - **Role → model mapping's "Subagent" role is a best-effort catch-all, not
   real subagent detection.** Claude Code's outbound request for a
   subagent's own model choice isn't distinguishable from an ordinary
