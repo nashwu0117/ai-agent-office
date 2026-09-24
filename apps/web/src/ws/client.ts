@@ -144,6 +144,7 @@ export async function submitGoal(input: { goal: string; workspacePath: string })
 export interface BackendProfileInput {
   id: string;
   label: string;
+  enabled?: boolean;
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;

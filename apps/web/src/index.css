@@ -481,6 +481,12 @@ input[type="checkbox"] {
   margin-top: 7px;
 }
 
+.agent-access-card {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: 142px;
+}
+
 .agent-access-list button {
   min-height: 38px;
   padding: 7px 9px;
@@ -498,6 +504,26 @@ input[type="checkbox"] {
 .agent-access-list button[aria-pressed="true"] {
   color: var(--outline);
   background: var(--gold);
+}
+
+.agent-access-card .agent-access-details {
+  text-align: left;
+}
+
+.agent-access-card .agent-access-cli {
+  min-height: 29px;
+  margin-top: 3px;
+  padding: 4px 8px;
+  color: var(--mint);
+  background: #080910;
+  border-color: var(--mint-dark);
+  font-family: var(--font-ui);
+  text-align: left;
+}
+
+.agent-access-card .agent-access-cli[aria-pressed="true"] {
+  color: var(--outline);
+  background: var(--mint);
 }
 
 .agent-access-list button:focus-visible {
@@ -1430,6 +1456,86 @@ input[type="checkbox"] {
   flex: 1;
 }
 
+.agent-panel-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin: -7px 0 15px;
+}
+
+.agent-panel-tabs button {
+  min-height: 34px;
+  padding: 6px 8px;
+  color: var(--paper-muted);
+  background: var(--ink-950);
+  border: 2px solid var(--stone-700);
+  cursor: pointer;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.agent-panel-tabs button[aria-selected="true"] {
+  color: var(--outline);
+  background: var(--gold);
+  border-color: var(--outline);
+}
+
+.cli-process-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  color: var(--stone-300);
+  background: #080910;
+  border: 2px solid var(--stone-700);
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.cli-process-dot {
+  width: 9px;
+  height: 9px;
+  background: var(--stone-500);
+  box-shadow: 0 0 0 2px var(--outline);
+}
+
+.cli-process-status-working {
+  color: var(--mint);
+  border-color: var(--mint-dark);
+}
+
+.cli-process-status-working .cli-process-dot {
+  background: var(--mint);
+  box-shadow: 0 0 8px var(--mint);
+}
+
+.cli-process-status-assigned,
+.cli-process-status-starting,
+.cli-process-status-waiting {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+.cli-process-status-assigned .cli-process-dot,
+.cli-process-status-starting .cli-process-dot,
+.cli-process-status-waiting .cli-process-dot {
+  background: var(--gold);
+}
+
+.cli-process-status-error,
+.cli-process-status-blocked {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.cli-process-status-error .cli-process-dot,
+.cli-process-status-blocked .cli-process-dot {
+  background: var(--danger);
+}
+
 .detail-panel h2,
 .queue-panel h2 {
   margin: 0 0 16px;
@@ -1514,6 +1620,36 @@ input[type="checkbox"] {
   color: var(--paper-muted);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.cli-log-live {
+  min-height: 180px;
+}
+
+.cli-log-empty {
+  color: var(--stone-500);
+  line-height: 1.5;
+}
+
+.cli-log-live .cli-log-line {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--stone-700);
+}
+
+.cli-log-meta {
+  color: var(--stone-500);
+  font-size: 9px;
+}
+
+.cli-log-line-error .cli-log-meta,
+.cli-log-line-error > span:last-child {
+  color: #ff9187;
+}
+
+.cli-log-line-done > span:last-child {
+  color: var(--mint);
 }
 
 .queue-panel {

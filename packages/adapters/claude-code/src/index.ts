@@ -95,10 +95,9 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
         "--output-format",
         "stream-json",
         "--verbose",
-        // Headless workers act on a single directory the operator supplied
-        // via the task form; auto-accepting file edits (but not e.g.
-        // arbitrary Bash) is what lets them actually make progress without
-        // a human present to click "allow" on every write.
+        // Headless workers act on the operator-selected workspace. Auto-accept
+        // file edits so they can make progress without a human approving each
+        // write, while keeping Claude Code's permission checks for other tools.
         "--permission-mode",
         "acceptEdits",
       ],

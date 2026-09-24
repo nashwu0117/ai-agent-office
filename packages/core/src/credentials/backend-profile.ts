@@ -82,6 +82,14 @@ export interface BackendProfile {
   id: string;
   /** Shown in the Agent detail panel, e.g. "NVIDIA API". */
   label: string;
+  /**
+   * Whether this profile accepts new work. Missing means enabled for
+   * backwards compatibility with registries written before this switch
+   * existed. Disabling a profile is deliberately non-destructive: its
+   * credentials, model mappings, and agent assignments are left intact so
+   * it can be started again without rebuilding the configuration.
+   */
+  enabled?: boolean;
   /** Env var this server reads the backend's ANTHROPIC_BASE_URL-equivalent from. Never the value itself. */
   baseUrlEnvVar: string;
   /** Env var this server reads the backend's auth token from. Never the value itself. */
@@ -137,6 +145,8 @@ export type BackendProfileRegistry = Record<string, BackendProfile>;
 export interface BackendProfileClientInfo {
   id: string;
   label: string;
+  /** Explicit UI-facing form of BackendProfile.enabled (missing legacy values are normalized to true). */
+  enabled: boolean;
   apiFormat: BackendProfile["apiFormat"];
   baseUrlEnvVar: string;
   authTokenEnvVar: string;

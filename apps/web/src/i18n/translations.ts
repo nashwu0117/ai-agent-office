@@ -79,6 +79,13 @@ export interface Translations {
   detailEligibleFor: string;
   detailGrantedNow: string;
   liveCliOutput: string;
+  openCliButton: string;
+  openCliAriaLabel: (agentId: string) => string;
+  openAgentDetailsButton: string;
+  closeAgentPanel: string;
+  cliPanelHeading: (agentId: string) => string;
+  cliProcessStatus: (state: string) => string;
+  cliNoOutput: string;
   emptyValue: string;
 
   queueHeading: (count: number) => string;
@@ -168,8 +175,14 @@ export interface Translations {
   colLabel: string;
   colApiFormat: string;
   profileReady: string;
+  profileStopped: string;
   profileMissingEnvVars: string;
   profileNeedsFormat: string;
+  startProfileButton: string;
+  stopProfileButton: string;
+  profilePowerControlsLabel: string;
+  profilePowerHint: string;
+  changingProfilePower: string;
   saveButton: string;
   savingButton: string;
   resetDraftButton: string;
@@ -448,6 +461,14 @@ const en: Translations = {
   detailEligibleFor: "Eligible for",
   detailGrantedNow: "Granted now",
   liveCliOutput: "Live CLI output",
+  openCliButton: "CLI",
+  openCliAriaLabel: (agentId) => `Open ${agentId}'s live CLI`,
+  openAgentDetailsButton: "Details",
+  closeAgentPanel: "Close agent panel",
+  cliPanelHeading: (agentId) => `${agentId} CLI`,
+  cliProcessStatus: (state) =>
+    state === "working" ? "RUNNING" : state === "starting" || state === "assigned" ? "STARTING" : state === "waiting" ? "WAITING" : state === "error" || state === "blocked" ? "ERROR" : state === "done" || state === "releasing" ? "EXITED" : "IDLE",
+  cliNoOutput: "No CLI process output yet. Output will stream here when this agent starts a task.",
   emptyValue: "—",
 
   queueHeading: (count) => `Queue (${count})`,
@@ -548,8 +569,14 @@ const en: Translations = {
   colLabel: "Label",
   colApiFormat: "API format",
   profileReady: "Ready",
+  profileStopped: "Stopped",
   profileMissingEnvVars: "Missing env var(s)",
   profileNeedsFormat: "Needs format selection",
+  startProfileButton: "Start",
+  stopProfileButton: "Stop",
+  profilePowerControlsLabel: "Backend profile power",
+  profilePowerHint: "Stop blocks new requests and removes assigned agents from the live office; their setup and assignments are kept so they return when started again.",
+  changingProfilePower: "Updating…",
   saveButton: "Save",
   savingButton: "Saving…",
   resetDraftButton: "Reset unsaved changes",
@@ -644,7 +671,7 @@ const en: Translations = {
     id === "codex" ? "e.g. gpt-5-codex — leave blank for the CLI's own default" : "e.g. sonnet, opus — leave blank for the CLI's own default",
   masterModelSaved: "Saved — the next plan()/summarize() call will use this model.",
   masterModelListHint:
-    "\"—\" means no --model flag (the CLI's own default). These lists aren't a live/complete catalog — Claude Code's three come from `claude --help`'s own --model documentation; Codex's two are the model ids actually present in this machine's ~/.codex/config.toml.",
+    "\"—\" means no --model flag (the CLI's own default). The list includes Claude Code's supported aliases and all user-selectable models currently exposed by this Codex installation; a previously saved custom model remains selectable too.",
 
   meetingRoomStatusBusy: "In session",
   meetingRoomStatusIdle: "Idle",
@@ -757,6 +784,14 @@ const zhTW: Translations = {
   detailEligibleFor: "可承接",
   detailGrantedNow: "目前授權",
   liveCliOutput: "即時 CLI 輸出",
+  openCliButton: "開啟 CLI",
+  openCliAriaLabel: (agentId) => `開啟 ${agentId} 的即時 CLI`,
+  openAgentDetailsButton: "詳細資料",
+  closeAgentPanel: "關閉代理面板",
+  cliPanelHeading: (agentId) => `${agentId} CLI`,
+  cliProcessStatus: (state) =>
+    state === "working" ? "執行中" : state === "starting" || state === "assigned" ? "啟動中" : state === "waiting" ? "等待中" : state === "error" || state === "blocked" ? "錯誤" : state === "done" || state === "releasing" ? "已結束" : "閒置",
+  cliNoOutput: "目前還沒有 CLI 程序輸出。這個代理開始任務後，真實輸出會即時顯示在這裡。",
   emptyValue: "—",
 
   queueHeading: (count) => `佇列(${count})`,
@@ -850,8 +885,14 @@ const zhTW: Translations = {
   colLabel: "名稱",
   colApiFormat: "API 格式",
   profileReady: "就緒",
+  profileStopped: "已停止",
   profileMissingEnvVars: "缺少環境變數",
   profileNeedsFormat: "尚未選擇格式",
+  startProfileButton: "啟動",
+  stopProfileButton: "停止",
+  profilePowerControlsLabel: "後端設定檔啟停控制",
+  profilePowerHint: "停止後會阻擋新請求，並讓所屬代理從即時辦公室消失；設定與指派都會保留，重新啟動後代理會再次出現。",
+  changingProfilePower: "更新中…",
   saveButton: "儲存",
   savingButton: "儲存中…",
   resetDraftButton: "還原未儲存的變更",
@@ -941,7 +982,7 @@ const zhTW: Translations = {
   masterModelPlaceholder: (id) => (id === "codex" ? "例如 gpt-5-codex——留空則使用 CLI 自己的預設值" : "例如 sonnet、opus——留空則使用 CLI 自己的預設值"),
   masterModelSaved: "已儲存——下一次呼叫 plan()/summarize() 會使用這個模型。",
   masterModelListHint:
-    "「—」代表不加 --model 參數(用 CLI 自己的預設值)。這份清單不是即時或完整的型錄——Claude Code 的三個選項來自 claude --help 自己文件裡列出的 --model 別名;Codex 的兩個是這台機器 ~/.codex/config.toml 裡實際出現過的模型 id。",
+    "「—」代表不加 --model 參數(用 CLI 自己的預設值)。清單包含 Claude Code 支援的別名，以及目前這個 Codex 安裝所公開的所有使用者可選模型；先前儲存的自訂模型也會保留為可選項目。",
 
   meetingRoomStatusBusy: "會議進行中",
   meetingRoomStatusIdle: "空閒中",

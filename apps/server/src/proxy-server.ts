@@ -82,6 +82,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, registry
     return;
   }
 
+  if (profile.enabled === false) {
+    res.writeHead(503, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: `Backend profile "${profileId}" is stopped. Start it in Backend & Credentials before sending new requests through it.`,
+        },
+      })
+    );
+    return;
+  }
+
   // v0.21: a profile whose wire format was never picked (see
   // BackendProfile.apiFormat's "unset" doc comment) is caught here, before
   // any credential lookup — a clear configuration error, not a guess at

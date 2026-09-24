@@ -7,6 +7,8 @@ export interface RuntimeEvent {
   type: RuntimeEventType;
   message: string;
   raw?: unknown;
+  /** Which real child-process stream produced this event. */
+  stream?: "stdout" | "stderr" | "system";
   timestamp: string;
 }
 

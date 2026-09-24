@@ -31,6 +31,13 @@ export function resolveBackendEnv(
     );
   }
 
+  if (profile.enabled === false) {
+    throw new BackendProfileError(
+      `Backend profile "${profileId}" (${profile.label}) is stopped. Start it in Backend & Credentials before dispatching a task through it.`,
+      profileId
+    );
+  }
+
   const baseUrl = process.env[profile.baseUrlEnvVar];
   const authToken = process.env[profile.authTokenEnvVar];
   if (!baseUrl || !authToken) {

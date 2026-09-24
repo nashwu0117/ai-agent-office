@@ -158,6 +158,22 @@ export class Orchestrator {
     return agent;
   }
 
+  /**
+   * Keeps a stopped backend's agents registered (so assignments/history are
+   * not lost) while removing them from dispatch and the live office floor.
+   * Re-enabling immediately re-runs dispatch for any pending work.
+   */
+  setAgentEnabled(agentId: string, enabled: boolean): Agent {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error(`Unknown agent "${agentId}"`);
+    if ((agent.enabled !== false) === enabled) return agent;
+    agent.enabled = enabled;
+    agent.updatedAt = this.now();
+    this.broadcast({ type: "agent_enabled_changed", agentId, enabled });
+    if (enabled) this.scheduleDispatch();
+    return agent;
+  }
+
   listTasks(): Task[] {
     return [...this.tasks.values()];
   }
@@ -228,8 +244,12 @@ export class Orchestrator {
    * calling this, using the agent state it already has client-side.
    */
   assignTaskToAgent(agentId: string, input: AssignTaskInput): Task {
-    if (!this.agents.has(agentId)) {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
       throw new Error(`Unknown agent "${agentId}"`);
+    }
+    if (agent.enabled === false) {
+      throw new Error(`Agent "${agentId}" is offline because its backend profile is stopped.`);
     }
     const task: Task = {
       id: defaultIdGen("task"),
@@ -347,9 +367,9 @@ export class Orchestrator {
       const agent = task.pinnedAgentId
         ? this.agents.get(task.pinnedAgentId)
         : [...this.agents.values()].find(
-            (a) => a.state === "available" && isSubset(task.requiredCapabilities, a.eligibleCapabilities)
+            (a) => a.enabled !== false && a.state === "available" && isSubset(task.requiredCapabilities, a.eligibleCapabilities)
           );
-      if (!agent || agent.state !== "available") continue;
+      if (!agent || agent.enabled === false || agent.state !== "available") continue;
 
       task.assignedAgentId = agent.id;
       agent.capabilities = task.requiredCapabilities;
@@ -397,7 +417,14 @@ export class Orchestrator {
       let lastErrorMessage: string | undefined;
 
       handle.onEvent((event: RuntimeEvent) => {
-        this.broadcast({ type: "agent_task_progress", agentId: agent.id, message: event.message });
+        this.broadcast({
+          type: "agent_task_progress",
+          agentId: agent.id,
+          message: event.message,
+          eventType: event.type,
+          stream: event.stream,
+          timestamp: event.timestamp,
+        });
         const maybeFile = extractFilePath(event.message);
         if (maybeFile) filesChanged.add(maybeFile);
         if (event.type === "error") lastErrorMessage = event.message;

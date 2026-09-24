@@ -29,6 +29,8 @@ export interface AgentWorkspace {
 
 export interface Agent {
   id: string;
+  /** False while the agent's assigned backend profile is stopped. Disabled agents stay registered for configuration/history, but are not dispatched or shown on the live office floor. */
+  enabled?: boolean;
   state: AgentState;
   runtime: string;
   model?: string;

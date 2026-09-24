@@ -15,6 +15,8 @@ import "./backend-profiles-panel.css";
 interface LogLine {
   message: string;
   timestamp: number;
+  eventType?: "log" | "progress" | "artifact" | "error" | "done";
+  stream?: "stdout" | "stderr" | "system";
 }
 
 interface CompletionCard {
@@ -27,6 +29,26 @@ interface CompletionCard {
   securityViolation?: boolean;
   authFailure?: boolean;
   backendProfileError?: boolean;
+}
+
+function completionFromTask(task: Task, previous?: CompletionCard): CompletionCard | null {
+  if (task.status !== "done" && task.status !== "failed") return null;
+
+  return {
+    key: task.id,
+    taskId: task.id,
+    agentId: task.assignedAgentId ?? previous?.agentId ?? "—",
+    summary: task.resultSummary ?? previous?.summary ?? task.title,
+    filesChanged: task.resultFilesChanged ?? previous?.filesChanged ?? [],
+    ok: task.status === "done",
+    // These classifications currently arrive on the terminal event rather
+    // than living on Task. Preserve them across reconnect snapshots in the
+    // same page session when they are available; a hard reload still shows
+    // the failed task as a normal failure instead of dropping it entirely.
+    securityViolation: previous?.securityViolation,
+    authFailure: previous?.authFailure,
+    backendProfileError: previous?.backendProfileError,
+  };
 }
 
 type GoalStatus = "planning" | "planned" | "failed" | "summarized";
@@ -76,6 +98,7 @@ export default function App() {
   const [logsByAgent, setLogsByAgent] = useState<Record<string, LogLine[]>>({});
   const [completions, setCompletions] = useState<CompletionCard[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [agentPanelView, setAgentPanelView] = useState<"details" | "cli">("details");
   const [selectedMaster, setSelectedMaster] = useState(false);
   const [description, setDescription] = useState("");
   const [workspacePath, setWorkspacePath] = useState("");
@@ -130,6 +153,16 @@ export default function App() {
       if (msg.type === "snapshot") {
         setAgents(msg.agents);
         setTasksById(Object.fromEntries(msg.tasks.map((task) => [task.id, task])));
+        setCompletions((previous) => {
+          const previousByTaskId = new Map(previous.map((completion) => [completion.taskId, completion]));
+          const updatedAtByTaskId = new Map(msg.tasks.map((task) => [task.id, task.updatedAt]));
+          return msg.tasks
+            .map((task) => completionFromTask(task, previousByTaskId.get(task.id)))
+            .filter((completion): completion is CompletionCard => completion !== null)
+            .sort((a, b) =>
+              (updatedAtByTaskId.get(b.taskId) ?? "").localeCompare(updatedAtByTaskId.get(a.taskId) ?? "")
+            );
+        });
         setCredentialStatuses(msg.credentials);
         setBackendProfiles(msg.backendProfiles ?? []);
         setDefaultBackendProfileState(msg.defaultBackendProfile ?? null);
@@ -174,6 +207,11 @@ export default function App() {
         return;
       }
 
+      if (msg.type === "agent_enabled_changed") {
+        setAgents((prev) => prev.map((a) => (a.id === msg.agentId ? { ...a, enabled: msg.enabled } : a)));
+        return;
+      }
+
       if (msg.type === "default_backend_profile_changed") {
         setDefaultBackendProfileState(msg.backendProfile);
         setAnnouncement(
@@ -211,7 +249,16 @@ export default function App() {
       if (msg.type === "agent_task_progress") {
         setLogsByAgent((prev) => {
           const existing = prev[msg.agentId] ?? [];
-          return { ...prev, [msg.agentId]: [...existing, { message: msg.message, timestamp: Date.now() }] };
+          const next = [
+            ...existing,
+            {
+              message: msg.message,
+              timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
+              eventType: msg.eventType,
+              stream: msg.stream,
+            },
+          ].slice(-500);
+          return { ...prev, [msg.agentId]: next };
         });
         return;
       }
@@ -219,14 +266,14 @@ export default function App() {
       if (msg.type === "task_completed") {
         setCompletions((prev) => [
           {
-            key: `${msg.taskId}-${Date.now()}`,
+            key: msg.taskId,
             taskId: msg.taskId,
             agentId: msg.agentId,
             summary: msg.summary,
             filesChanged: msg.filesChanged,
             ok: true,
           },
-          ...prev,
+          ...prev.filter((completion) => completion.taskId !== msg.taskId),
         ]);
         setAnnouncement(tRef.current.announceTaskCompleted(msg.taskId, msg.agentId, msg.summary));
         return;
@@ -235,7 +282,7 @@ export default function App() {
       if (msg.type === "task_failed") {
         setCompletions((prev) => [
           {
-            key: `${msg.taskId}-${Date.now()}`,
+            key: msg.taskId,
             taskId: msg.taskId,
             agentId: msg.agentId,
             summary: msg.reason,
@@ -245,7 +292,7 @@ export default function App() {
             authFailure: msg.authFailure,
             backendProfileError: msg.backendProfileError,
           },
-          ...prev,
+          ...prev.filter((completion) => completion.taskId !== msg.taskId),
         ]);
         if (msg.securityViolation) {
           setSecurityAlertAgents((prev) => new Set(prev).add(msg.agentId));
@@ -438,7 +485,12 @@ export default function App() {
   const lastPanelTriggerRef = useRef<HTMLElement | null>(null);
   const detailPanelOpenRef = useRef(false);
 
-  const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
+  const visibleAgents = useMemo(() => agents.filter((agent) => agent.enabled !== false), [agents]);
+  const selectedAgent = visibleAgents.find((a) => a.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (selectedId && !visibleAgents.some((agent) => agent.id === selectedId)) setSelectedId(null);
+  }, [selectedId, visibleAgents]);
   const selectedAgentTask = useMemo(() => {
     if (!selectedAgent) return null;
     if (selectedAgent.currentTaskId) return tasksById[selectedAgent.currentTaskId] ?? null;
@@ -560,17 +612,26 @@ export default function App() {
       <div className="app-body">
         <main id="main-content" className="main-column" tabIndex={-1}>
           <OfficeScene
-            agents={agents}
+            agents={visibleAgents}
             progressByAgent={progressByAgent}
             collaborationRoomByAgent={collaborationRoomByAgent}
             roomBusy={roomBusy}
             masterPlanning={masterPlanning}
             selectedId={selectedId}
+            cliAgentId={agentPanelView === "cli" ? selectedId : null}
             selectedMaster={selectedMaster}
             onSelect={(id) => {
               lastPanelTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
               setSelectedMaster(false);
               setSelectedRoom(null);
+              setAgentPanelView("details");
+              setSelectedId(id);
+            }}
+            onOpenCli={(id) => {
+              lastPanelTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              setSelectedMaster(false);
+              setSelectedRoom(null);
+              setAgentPanelView("cli");
               setSelectedId(id);
             }}
             onSelectMaster={() => {
@@ -823,8 +884,33 @@ export default function App() {
           )}
           {selectedAgent && (
             <>
-              <h2>{selectedAgent.id}</h2>
+              <div className="detail-panel-header-row">
+                <h2>{agentPanelView === "cli" ? t.cliPanelHeading(selectedAgent.id) : selectedAgent.id}</h2>
+                <button type="button" className="bp-close" onClick={() => setSelectedId(null)} aria-label={t.closeAgentPanel}>
+                  ✕
+                </button>
+              </div>
+              <div className="agent-panel-tabs" role="tablist" aria-label={selectedAgent.id}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={agentPanelView === "details"}
+                  onClick={() => setAgentPanelView("details")}
+                >
+                  {t.openAgentDetailsButton}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={agentPanelView === "cli"}
+                  onClick={() => setAgentPanelView("cli")}
+                >
+                  &gt;_ {t.openCliButton}
+                </button>
+              </div>
 
+              {agentPanelView === "details" && (
+                <>
               <section className="detail-current-task" aria-label={t.detailCurrentWork}>
                 <h3>{t.detailCurrentWork}</h3>
                 {selectedAgentTask ? (
@@ -955,14 +1041,41 @@ export default function App() {
                     : t.emptyValue}
                 </dd>
               </dl>
-              <h3>{t.liveCliOutput}</h3>
-              <div className="cli-log">
-                {(logsByAgent[selectedAgent.id] ?? []).map((line, i) => (
-                  <div key={i} className="cli-log-line">
-                    {line.message}
+                </>
+              )}
+
+              {agentPanelView === "cli" && (
+                <>
+                  <div className={`cli-process-status cli-process-status-${selectedAgent.state}`} role="status">
+                    <span className="cli-process-dot" aria-hidden="true" />
+                    {t.cliProcessStatus(selectedAgent.state)}
                   </div>
-                ))}
-              </div>
+                  <dl className="cli-runtime-details">
+                    <dt>{t.detailRuntime}</dt>
+                    <dd>{t.runtimeLabel(selectedAgent.runtime)}</dd>
+                    <dt>{t.detailState}</dt>
+                    <dd>{t.agentStateLabel(selectedAgent.state)}</dd>
+                    <dt>{t.detailTask}</dt>
+                    <dd>{selectedAgent.currentTaskId ?? t.emptyValue}</dd>
+                    <dt>{t.detailWorkspace}</dt>
+                    <dd>{selectedAgent.workspace?.path ?? t.emptyValue}</dd>
+                  </dl>
+                  <h3>{t.liveCliOutput}</h3>
+                  <div className="cli-log cli-log-live" aria-live="polite">
+                    {(logsByAgent[selectedAgent.id] ?? []).length === 0 && (
+                      <div className="cli-log-empty">{t.cliNoOutput}</div>
+                    )}
+                    {(logsByAgent[selectedAgent.id] ?? []).map((line, i) => (
+                      <div key={`${line.timestamp}-${i}`} className={`cli-log-line cli-log-line-${line.eventType ?? "log"}`}>
+                        <span className="cli-log-meta">
+                          {new Date(line.timestamp).toLocaleTimeString()} [{line.stream ?? "stdout"}]
+                        </span>
+                        <span>{line.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </aside>

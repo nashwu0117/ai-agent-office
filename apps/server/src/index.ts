@@ -444,6 +444,7 @@ function makeAgent(id: string, runtime: string, eligibleCapabilities: string[], 
   const now = new Date().toISOString();
   return {
     id,
+    enabled: !backendProfile || backendProfileStore.registry[backendProfile]?.enabled !== false,
     state: "available",
     runtime,
     backendProfile,
@@ -692,9 +693,10 @@ app.put("/api/backend-profiles/:id", (req, res) => {
   // "key omitted from the body" (keep existing) from "key present" (replace,
   // even with an empty object) — see its own comment on that `in` check.
   const body = req.body ?? {};
-  const { label, apiFormat, baseUrlEnvVar, authTokenEnvVar } = body;
+  const { label, enabled, apiFormat, baseUrlEnvVar, authTokenEnvVar } = body;
   const patch: BackendProfileUpdate = {
     label,
+    enabled,
     apiFormat,
     baseUrlEnvVar,
     authTokenEnvVar,
@@ -705,6 +707,11 @@ app.put("/api/backend-profiles/:id", (req, res) => {
   };
   try {
     backendProfileStore.update(req.params.id, patch);
+    if (typeof enabled === "boolean") {
+      for (const agent of orchestrator.listAgents()) {
+        if (agent.backendProfile === req.params.id) orchestrator.setAgentEnabled(agent.id, enabled);
+      }
+    }
     broadcast({ type: "backend_profiles_changed", profiles: backendProfileStore.list() });
     res.json(backendProfileStore.list().find((p) => p.id === req.params.id));
   } catch (err) {
@@ -757,6 +764,10 @@ app.get("/api/backend-profiles/:id/models", modelsLimiter, async (req, res) => {
   const profile = backendProfileStore.registry[req.params.id];
   if (!profile) {
     res.status(404).json({ error: `Backend profile "${req.params.id}" does not exist.` });
+    return;
+  }
+  if (profile.enabled === false) {
+    res.status(409).json({ error: `Profile "${profile.id}" is stopped. Start it before fetching models.` });
     return;
   }
   const baseUrl = process.env[profile.baseUrlEnvVar]?.trim();
@@ -852,8 +863,13 @@ app.put("/api/agents/:id/backend-profile", (req, res) => {
     res.status(400).json({ error: `Unknown backend profile "${backendProfile}"` });
     return;
   }
+  if (backendProfile !== undefined && backendProfileStore.registry[backendProfile]?.enabled === false) {
+    res.status(409).json({ error: `Backend profile "${backendProfile}" is stopped. Start it before assigning new agents to it.` });
+    return;
+  }
 
   orchestrator.setAgentBackendProfile(agent.id, backendProfile);
+  orchestrator.setAgentEnabled(agent.id, true);
   agentAssignments.set(agent.id, backendProfile);
   res.json(orchestrator.getAgent(agent.id));
 });
@@ -877,6 +893,10 @@ app.put("/api/default-backend-profile", (req, res) => {
     res.status(400).json({ error: `Unknown backend profile "${backendProfile}"` });
     return;
   }
+  if (backendProfile !== null && backendProfileStore.registry[backendProfile]?.enabled === false) {
+    res.status(409).json({ error: `Backend profile "${backendProfile}" is stopped. Start it before making it the default.` });
+    return;
+  }
 
   defaultBackendStore.set(backendProfile);
   broadcast({ type: "default_backend_profile_changed", backendProfile });
@@ -890,6 +910,7 @@ app.put("/api/default-backend-profile", (req, res) => {
     if (agentAssignments.hasExplicitOverride(agent.id)) continue;
     if (AGENT_ROSTER[agent.id]?.backendProfile !== undefined) continue;
     orchestrator.setAgentBackendProfile(agent.id, backendProfile ?? undefined);
+    orchestrator.setAgentEnabled(agent.id, true);
   }
 
   res.json({ backendProfile: defaultBackendStore.get() });

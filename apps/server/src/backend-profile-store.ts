@@ -46,6 +46,7 @@ export class BackendProfileValidationError extends Error {}
 export interface BackendProfileInput {
   id: string;
   label: string;
+  enabled?: boolean;
   apiFormat: string;
   baseUrlEnvVar: string;
   authTokenEnvVar: string;
@@ -57,6 +58,7 @@ export interface BackendProfileInput {
 
 export interface BackendProfileUpdate {
   label?: string;
+  enabled?: boolean;
   apiFormat?: string;
   baseUrlEnvVar?: string;
   authTokenEnvVar?: string;
@@ -160,6 +162,7 @@ export class BackendProfileStore {
     const merged = this.validateFields(id, {
       id,
       label: patch.label ?? existing.label,
+      enabled: patch.enabled ?? existing.enabled ?? true,
       apiFormat: patch.apiFormat ?? existing.apiFormat,
       baseUrlEnvVar: patch.baseUrlEnvVar ?? existing.baseUrlEnvVar,
       authTokenEnvVar: patch.authTokenEnvVar ?? existing.authTokenEnvVar,
@@ -182,6 +185,9 @@ export class BackendProfileStore {
   private validateFields(id: string, input: BackendProfileInput): BackendProfile {
     const label = input.label.trim();
     if (!label) throw new BackendProfileValidationError("label is required.");
+    if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
+      throw new BackendProfileValidationError("enabled must be a boolean.");
+    }
     if (!VALID_API_FORMATS.has(input.apiFormat as BackendProfile["apiFormat"])) {
       throw new BackendProfileValidationError(`apiFormat must be one of: ${[...VALID_API_FORMATS].join(", ")}.`);
     }
@@ -199,6 +205,7 @@ export class BackendProfileStore {
     return {
       id,
       label,
+      enabled: input.enabled ?? true,
       apiFormat: input.apiFormat as BackendProfile["apiFormat"],
       baseUrlEnvVar,
       authTokenEnvVar,
@@ -298,6 +305,7 @@ function toClientInfo(profile: BackendProfile): BackendProfileClientInfo {
   return {
     id: profile.id,
     label: profile.label,
+    enabled: profile.enabled !== false,
     apiFormat: profile.apiFormat,
     baseUrlEnvVar: profile.baseUrlEnvVar,
     authTokenEnvVar: profile.authTokenEnvVar,

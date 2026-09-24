@@ -366,6 +366,9 @@ export interface OfficeSceneProps {
   roomBusy?: boolean[];
   selectedId: string | null;
   onSelect: (agentId: string) => void;
+  /** Agent whose dedicated live-CLI view is open. */
+  cliAgentId?: string | null;
+  onOpenCli?: (agentId: string) => void;
   selectedMaster?: boolean;
   onSelectMaster?: () => void;
   /** v0.22 Part C: which meeting room's table (if any) is currently selected, for the click-to-view transcript panel. */
@@ -384,6 +387,8 @@ export function OfficeScene({
   roomBusy,
   selectedId,
   onSelect,
+  cliAgentId,
+  onOpenCli,
   selectedMaster,
   onSelectMaster,
   selectedRoom,
@@ -636,10 +641,11 @@ export function OfficeScene({
           const progress = progressByAgent[agent.id];
           const state = t.agentStateLabel(agent.state);
           return (
-            <li key={agent.id}>
+            <li key={agent.id} className="agent-access-card">
               <button
                 type="button"
-                aria-pressed={selectedId === agent.id}
+                className="agent-access-details"
+                aria-pressed={selectedId === agent.id && cliAgentId !== agent.id}
                 aria-label={t.agentAccessLabel(agent.id, state, progress)}
                 onClick={() => onSelect(agent.id)}
               >
@@ -647,6 +653,15 @@ export function OfficeScene({
                   ●
                 </span>
                 {agent.id} · {state}
+              </button>
+              <button
+                type="button"
+                className="agent-access-cli"
+                aria-pressed={cliAgentId === agent.id}
+                aria-label={t.openCliAriaLabel(agent.id)}
+                onClick={() => onOpenCli?.(agent.id)}
+              >
+                <span aria-hidden="true">&gt;_</span> {t.openCliButton}
               </button>
             </li>
           );

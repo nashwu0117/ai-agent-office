@@ -46,24 +46,20 @@ const API_FORMAT_OPTIONS: Array<{ value: string; label: string }> = [
  * v0.22.1: Master's --model dropdown, same "clickable list, not just free
  * text" UX as the role-model-map fields' Fetch Models button below — but
  * Master's two CLIs have no baseUrl/authToken to call a real /models
- * endpoint with, so there is nothing to live-fetch. Sourced from the real
- * installed CLIs on the operator's own machine rather than guessed:
- * - claude-code: `claude --help`'s own `--model` doc text lists exactly
- *   these three aliases ("Provide an alias for the latest model (e.g.
- *   'fable', 'opus', or 'sonnet')").
- * - codex: no such enumerated list exists in `codex --help`/`codex exec
- *   --help` (unlike e.g. --sandbox, which does document
- *   `[possible values: ...]`) — these two are simply the model ids actually
- *   present in this machine's own ~/.codex/config.toml (its configured
- *   default `model`, and the one entry under `[tui.model_availability_nux]`).
+ * endpoint with, so there is nothing to live-fetch. These choices mirror the
+ * aliases/models exposed by the installed CLIs on the operator's machine:
+ * - claude-code: stable aliases accepted by `claude --model` (the CLI help
+ *   gives fable/opus/sonnet as examples; haiku is also a supported alias).
+ * - codex: visible entries from ~/.codex/models_cache.json. Hidden internal
+ *   models such as the approval reviewer are deliberately excluded.
  * Neither list claims to be exhaustive or current on a different machine —
  * ModelField still shows a currently-saved value even if it isn't one of
  * these, and the operator can always fall back to editing
  * apps/server/data/master-brain.json by hand for anything not listed here.
  */
 const MASTER_MODEL_OPTIONS: Record<"claude-code" | "codex", string[]> = {
-  "claude-code": ["fable", "opus", "sonnet"],
-  codex: ["gpt-5.6-sol", "gpt-6-astra"],
+  "claude-code": ["fable", "opus", "sonnet", "haiku"],
+  codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
 };
 
 interface LoginProvider {
@@ -324,6 +320,25 @@ export function BackendProfilesPanel({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [profilePowerSaving, setProfilePowerSaving] = useState(false);
+  const [profilePowerError, setProfilePowerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProfilePowerError(null);
+  }, [selectedProfile?.id]);
+
+  async function handleProfileEnabledChange(enabled: boolean) {
+    if (!selectedProfile || selectedProfile.enabled === enabled) return;
+    setProfilePowerSaving(true);
+    setProfilePowerError(null);
+    try {
+      await updateBackendProfile(selectedProfile.id, { enabled });
+    } catch (err) {
+      setProfilePowerError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProfilePowerSaving(false);
+    }
+  }
 
   // v0.21.2: the "live preview" box is now a two-way editable textarea, per
   // the operator's own request — typing/pasting JSON into it and clicking
@@ -545,6 +560,7 @@ export function BackendProfilesPanel({
   if (!open) return null;
 
   function statusFor(p: BackendProfileClientInfo): { text: string; className: string } {
+    if (!p.enabled) return { text: t.profileStopped, className: "bp-status-stopped" };
     if (p.apiFormat === "unset") return { text: t.profileNeedsFormat, className: "bp-status-warn" };
     return p.available ? { text: t.profileReady, className: "bp-status-ok" } : { text: t.profileMissingEnvVars, className: "bp-status-bad" };
   }
@@ -707,7 +723,7 @@ export function BackendProfilesPanel({
                   <button
                     key={id}
                     type="button"
-                    className={`bp-provider-list-item ${selectedId === id ? "bp-provider-list-item-active" : ""}`}
+                    className={`bp-provider-list-item ${item.kind === "profile" && !item.profile.enabled ? "bp-provider-list-item-stopped" : ""} ${selectedId === id ? "bp-provider-list-item-active" : ""}`}
                     onClick={() => setSelectedId(id)}
                     aria-current={selectedId === id}
                   >
@@ -761,8 +777,38 @@ export function BackendProfilesPanel({
                   }}
                 >
                   <div className="bp-provider-form-header">
-                    <h4>{selectedProfile.label}</h4>
-                    <span className={`bp-status-pill ${statusFor(selectedProfile).className}`}>{statusFor(selectedProfile).text}</span>
+                    <div className="bp-provider-heading-main">
+                      <h4>{selectedProfile.label}</h4>
+                      <div className="bp-power-control" role="group" aria-label={t.profilePowerControlsLabel}>
+                        <button
+                          type="button"
+                          className="bp-power-start"
+                          aria-pressed={selectedProfile.enabled}
+                          disabled={profilePowerSaving}
+                          onClick={() => void handleProfileEnabledChange(true)}
+                        >
+                          <span aria-hidden="true">▶</span> {t.startProfileButton}
+                        </button>
+                        <button
+                          type="button"
+                          className="bp-power-stop"
+                          aria-pressed={!selectedProfile.enabled}
+                          disabled={profilePowerSaving}
+                          onClick={() => void handleProfileEnabledChange(false)}
+                        >
+                          <span aria-hidden="true">■</span> {t.stopProfileButton}
+                        </button>
+                      </div>
+                      <p className="bp-power-hint">{profilePowerSaving ? t.changingProfilePower : t.profilePowerHint}</p>
+                      {profilePowerError && (
+                        <div className="bp-form-error" role="alert">
+                          {profilePowerError}
+                        </div>
+                      )}
+                    </div>
+                    <span className={`bp-status-pill ${statusFor(selectedProfile).className}`} role="status" aria-live="polite">
+                      {statusFor(selectedProfile).text}
+                    </span>
                   </div>
 
                   <div className="bp-field-grid">
@@ -831,7 +877,11 @@ export function BackendProfilesPanel({
                     <legend>{t.roleModelMapHeading}</legend>
                     <p className="bp-hint">{t.roleModelMapHint}</p>
                     <div className="bp-fetch-models-row">
-                      <button type="button" disabled={!selectedProfile.available || modelsState?.status === "loading"} onClick={handleFetchModels}>
+                      <button
+                        type="button"
+                        disabled={!selectedProfile.enabled || !selectedProfile.available || modelsState?.status === "loading"}
+                        onClick={handleFetchModels}
+                      >
                         {modelsState?.status === "loading" ? t.fetchingModelsButton : t.fetchModelsButton}
                       </button>
                       {modelsState?.status === "error" && (
@@ -971,8 +1021,8 @@ export function BackendProfilesPanel({
             >
               <option value="official">{t.officialBackend}</option>
               {backendProfiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
+                <option key={p.id} value={p.id} disabled={!p.enabled && p.id !== defaultBackendProfile}>
+                  {p.label}{!p.enabled ? ` (${t.profileStopped})` : ""}
                 </option>
               ))}
             </select>
@@ -1011,8 +1061,8 @@ export function BackendProfilesPanel({
                         >
                           <option value="official">{t.officialBackend}</option>
                           {backendProfiles.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.label}
+                            <option key={p.id} value={p.id} disabled={!p.enabled && p.id !== agent.backendProfile}>
+                              {p.label}{!p.enabled ? ` (${t.profileStopped})` : ""}
                             </option>
                           ))}
                         </select>

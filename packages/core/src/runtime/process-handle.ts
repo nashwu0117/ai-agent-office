@@ -43,22 +43,28 @@ export function spawnRuntimeProcess(options: SpawnRuntimeOptions): RuntimeHandle
   const rl = createInterface({ input: child.stdout! });
   rl.on("line", (line: string) => {
     if (!line.trim()) return;
-    emit(options.mapLine(parseJsonLine(line)));
+    const event = options.mapLine(parseJsonLine(line));
+    emit({ ...event, stream: event.stream ?? "stdout" });
   });
 
   child.stderr!.on("data", (chunk: Buffer) => {
     stderrBuffer += chunk.toString();
   });
+  const stderrLines = createInterface({ input: child.stderr! });
+  stderrLines.on("line", (line: string) => {
+    if (!line.trim()) return;
+    emit({ type: "log", message: line, stream: "stderr", timestamp: new Date().toISOString() });
+  });
 
   child.on("exit", (code) => {
     if (code !== 0 && stderrBuffer.trim()) {
-      emit({ type: "error", message: stderrBuffer.trim(), timestamp: new Date().toISOString() });
+      emit({ type: "error", message: stderrBuffer.trim(), stream: "stderr", timestamp: new Date().toISOString() });
     }
     for (const cb of exitCbs) cb(code);
   });
 
   child.on("error", (err) => {
-    emit({ type: "error", message: err.message, timestamp: new Date().toISOString() });
+    emit({ type: "error", message: err.message, stream: "system", timestamp: new Date().toISOString() });
   });
 
   return {
